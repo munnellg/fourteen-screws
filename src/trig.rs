@@ -1,6 +1,8 @@
 use core::f64::consts::PI;
 use crate::consts::{ PROJECTION_PLANE_WIDTH, TILE_SIZE };
 
+include!(concat!(env!("OUT_DIR"), "/lookup.rs"));
+
 pub const ANGLE_0:   i32 = 0;
 pub const ANGLE_60:  i32 = PROJECTION_PLANE_WIDTH;
 pub const ANGLE_30:  i32 = ANGLE_60 / 2;
@@ -24,104 +26,43 @@ pub fn radian(angle: i32) -> f64 {
 }
 
 pub fn cos(degrees: i32) -> f64 {
-	radian(degrees).cos()
+	COS[degrees as usize] as f64 / 65536.0
 }
 
 pub fn sin(degrees: i32) -> f64 {
-	radian(degrees).sin()
+	SIN[degrees as usize] as f64 / 65536.0
 }
 
 pub fn tan(degrees: i32) -> f64 {
-	if degrees == ANGLE_90 {
-		f64::INFINITY
-	} else if degrees == ANGLE_270 {
-		f64::NEG_INFINITY
-	} else {
-		radian(degrees).tan()	
-	}
+	TAN[degrees as usize] as f64 / 65536.0
 }
 
 pub fn icos(degrees: i32) -> f64 {
-	let x = cos(degrees);
-
-	if x == 0.0 || degrees == ANGLE_90 || degrees == ANGLE_270 {
-		f64::INFINITY
-	} else {
-		1.0 / x
-	}
-
+	ICOS[degrees as usize] as f64 / 65536.0
 }
 
 pub fn isin(degrees: i32) -> f64 {
-	let x = sin(degrees);
-	if x == 0.0 || degrees == ANGLE_0 || degrees == ANGLE_180 || degrees == ANGLE_360 {
-		f64::INFINITY
-	} else {
-		1.0 / x
-	}
-
+	ISIN[degrees as usize] as f64 / 65536.0
 }
 
 pub fn itan(degrees: i32) -> f64 {
-	let x = tan(degrees);
-	if x == 0.0 || degrees == ANGLE_0 || degrees == ANGLE_360 {
-		f64::INFINITY
-	} else if degrees == ANGLE_90 {
-		0.0
-	} else if degrees == ANGLE_180 {
-		f64::NEG_INFINITY
-	} else {
-		1.0 / x
-	}
-
+	ITAN[degrees as usize] as f64 / 65536.0
 }
 
 pub fn xstep(degrees: i32) -> f64 {
-	if tan(degrees) == 0.0 {
-		return f64::MAX
-	}
-
-	let step = TILE_SIZE as f64 * itan(degrees);
-
-	if degrees >= ANGLE_90 && degrees < ANGLE_270 {
-		if step < 0.0 {
-		  return -step;
-		}
-	} else {
-		if step > 0.0 {
-		  return -step;
-		}
-	}
-
-	step
+	X_STEP[degrees as usize] as f64 / 65536.0
 }
 
 pub fn ystep(degrees: i32) -> f64 {
-
-	let step = TILE_SIZE as f64 * tan(degrees);
-
-	if degrees >= ANGLE_0 && degrees < ANGLE_180 {
-		if step < 0.0 {
-		  return -step;
-		}
-	} else {
-		if step > 0.0 {
-		  return -step;
-		}
-	}
-
-	step
+	Y_STEP[degrees as usize] as f64 / 65536.0
 }
 
 pub fn fisheye_correction(degrees: i32) -> f64 {
-	1.0 / cos(degrees - ANGLE_30)
+	FISHEYE[degrees as usize] as f64 / 65536.0
 }
 
 pub fn wall_height(dist: i32) -> i32 {
-	const WALL_HEIGHT_SCALE_FACTOR: i32 = 18000; 
-	const WALL_HEIGHT_MAX: i32          = 640;
-	const WALL_HEIGHT_MIN: i32          = 8;
-	clamp(WALL_HEIGHT_SCALE_FACTOR / dist, WALL_HEIGHT_MIN, WALL_HEIGHT_MAX)
+	WALL_HEIGHT[dist.min(2048) as usize]
 }
 
 #[cfg(test)]

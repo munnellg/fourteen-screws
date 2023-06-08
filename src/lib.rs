@@ -67,7 +67,7 @@ impl Cluiche {
 
 	fn draw_wall_column(&self, buf: &mut[u8], column: i32, dist: f64) {
 		// get wall texture, draw into column
-		let wall_height: i32 = consts::WALL_HEIGHT_SCALE_FACTOR / dist.max(1.0) as i32;
+		let wall_height: i32 = trig::wall_height(dist as i32);
 
 		let y_min = std::cmp::max(0, (200 - wall_height) / 2);
 		let y_max = std::cmp::min(200 - 1, y_min + wall_height);
