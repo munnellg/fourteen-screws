@@ -1,22 +1,36 @@
 use crate::trig;
 use crate::consts;
 
+pub struct Player {
+	pub x: i32,
+	pub y: i32,
+	pub rotation: i32,
+	pub move_speed: i32,
+	pub rotate_speed: i32,
+}
+
+impl Player {
+	pub fn new(x: i32, y: i32, rotation: i32, move_speed: i32, rotate_speed: i32) -> Player {
+		Player { x, y, rotation, move_speed, rotate_speed }
+	}
+
+	pub fn pos(&mut self, x: i32, y: i32) {
+		self.x = x;
+		self.y = y;
+	}
+
+	pub fn rotation(&mut self, mut rotation: i32) {
+		// ensure the input rotation is within bounds
+		while rotation >= trig::ANGLE_360 { rotation -= trig::ANGLE_360; }
+		while rotation < trig::ANGLE_0 { rotation += trig::ANGLE_360; }
+		self.rotation = rotation;
+	}
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tile {
 	Empty,
 	Wall,
-}
-
-pub struct Player {
-	x: i32,
-	y: i32,
-	rotation: i32,
-}
-
-impl Player {
-	fn new(x: i32, y: i32, rotation: i32) -> Player {
-		Player { x, y, rotation }
-	}
 }
 
 pub struct World {
@@ -162,6 +176,7 @@ impl World {
 #[cfg(test)]
 mod test {
 	use super::*;
+	use float_cmp;
 
 	#[test]
 	fn create_new_world() {
@@ -200,5 +215,12 @@ mod test {
 		assert_eq!(world.find_vertical_intersect(64, 64, trig::ANGLE_90),  f64::MAX);
 		assert_eq!(world.find_vertical_intersect(64, 64, trig::ANGLE_180), 64.0);
 		assert_eq!(world.find_vertical_intersect(64, 64, trig::ANGLE_270), f64::MAX);
+	}
+
+	#[test]
+	fn cast_ray_2() {
+		let world = World::new(7, 7, "WHHHHHWVOOOOOVVOOOOOVVOOOOOVVOOOOOVVOOOOOVWHHHHHW").unwrap();
+		float_cmp::assert_approx_eq!(f64, world.find_horizontal_intersect(76, 76, 295),   0.0, epsilon = 0.00000003, ulps = 2);
+		float_cmp::assert_approx_eq!(f64, world.find_vertical_intersect(76, 76, 295),   0.0, epsilon = 0.00000003, ulps = 2);
 	}
 }
