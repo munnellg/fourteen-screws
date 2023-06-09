@@ -1,5 +1,7 @@
 use crate::trig;
 use crate::consts;
+use crate::fp;
+use crate::fp::{ ToFixedPoint, FromFixedPoint };
 
 pub struct Player {
 	pub x: i32,
@@ -34,11 +36,10 @@ pub enum Tile {
 }
 
 pub struct World {
-	tile_size: i32,
 	width: i32,
 	height: i32,
-	h_walls: Vec<Tile>,
-	v_walls: Vec<Tile>,
+	y_walls: Vec<Tile>,
+	x_walls: Vec<Tile>,
 }
 
 impl World {
@@ -51,7 +52,7 @@ impl World {
 			return Err("Width and height parameters do not match size of serialized map string");
 		}
 
-		let h_walls: Vec<Tile> = map_str.chars()
+		let y_walls: Vec<Tile> = map_str.chars()
 			.map(|c| {
 				if c == 'W' || c == 'H' {
 					Tile::Wall
@@ -61,7 +62,7 @@ impl World {
 			})
 			.collect();
 
-		let v_walls: Vec<Tile> = map_str.chars()
+		let x_walls: Vec<Tile> = map_str.chars()
 			.map(|c| {
 				if c == 'W' || c == 'V' {
 					Tile::Wall
@@ -71,105 +72,109 @@ impl World {
 			})
 			.collect();
 
-		Ok(World { tile_size: consts::TILE_SIZE, width, height, h_walls, v_walls })
+		Ok(World { width, height, y_walls, x_walls })
 	}
 
-	fn is_within_bounds(&self, x: f64, y: f64) -> bool {
-		let x = x as i32 / self.tile_size;
-		let y = y as i32 / self.tile_size;
+	fn is_within_bounds(&self, x: i32, y: i32) -> bool {
 		x >= 0 && x < self.width && y >= 0 && y < self.height
 	}
 
-	fn is_h_wall(&self, x:f64, y:f64) -> bool {
-		let x = x as i32 / self.tile_size;
-		let y = y as i32 / self.tile_size;
-		self.h_walls[(x + y  * self.width) as usize] == Tile::Wall
+	pub fn is_y_wall(&self, x:i32, y:i32) -> bool {
+		if !self.is_within_bounds(x, y) { return true; }
+		self.y_walls[(x + y  * self.width) as usize] == Tile::Wall
 	}
 
-	fn is_v_wall(&self, x:f64, y:f64) -> bool {
-		let x = x as i32 / self.tile_size;
-		let y = y as i32 / self.tile_size;
-		self.v_walls[(x + y  * self.width) as usize] == Tile::Wall
+	pub fn is_x_wall(&self, x:i32, y:i32) -> bool {
+		if !self.is_within_bounds(x, y) { return true; }
+		self.x_walls[(x + y  * self.width) as usize] == Tile::Wall
 	}
 
-	pub fn find_horizontal_intersect(&self, origin_x: i32, origin_y: i32, direction: i32) -> f64 {
-		let step_x: f64; // distance to next vertical intersect
-		let step_y: f64; // distance to next horizontal intersect
-		let mut x: f64;  // x coordinate of current ray intersect
-		let mut y: f64;  // y coordinate of current ray intersect
+	fn find_horizontal_intersect(&self, origin_x: i32, origin_y: i32, direction: i32) -> i32 {
+		let step_x: i32; // distance to next vertical intersect
+		let step_y: i32; // distance to next horizontal intersect
+		let mut x: i32;  // x coordinate of current ray intersect
+		let mut y: i32;  // y coordinate of current ray intersect
 
 		// determine if looking up or down and find horizontal intersection
 		if direction > trig::ANGLE_0 && direction < trig::ANGLE_180 { // looking down
-			let hi = (origin_y / self.tile_size) * self.tile_size + self.tile_size;
 			step_x = trig::xstep(direction);
-			step_y = consts::F_TILE_SIZE;
-			x = origin_x as f64 + (hi - origin_y) as f64 * trig::itan(direction);
-			y = hi as f64;
+			step_y = consts::FP_TILE_SIZE;
+
+			let hi = ((origin_y.to_i32() / consts::TILE_SIZE) * consts::TILE_SIZE + consts::TILE_SIZE).to_fp();
+			x = fp::add(origin_x, fp::mul(fp::sub(hi, origin_y), trig::itan(direction)));
+			y = hi;
 		} else {                     // looking up
-			let hi = (origin_y / self.tile_size) * self.tile_size;
 			step_x = trig::xstep(direction);
-			step_y = -consts::F_TILE_SIZE;
-			x = origin_x as f64 + (hi - origin_y) as f64 * trig::itan(direction);
-			y = (hi - consts::TILE_SIZE) as f64;
+			step_y = -consts::FP_TILE_SIZE;
+
+			let hi = ((origin_y.to_i32() / consts::TILE_SIZE) * consts::TILE_SIZE).to_fp();
+			x = fp::add(origin_x, fp::mul(fp::sub(hi, origin_y), trig::itan(direction)));
+			y = fp::sub(hi, consts::FP_TILE_SIZE);
 		}
 
 		if direction == trig::ANGLE_0 || direction == trig::ANGLE_180 {
-			return f64::MAX;
+			return trig::FP_MAX_RAY_LENGTH;
 		}
 
 		// Cast x axis intersect rays, build up xSlice
-		while self.is_within_bounds(x, y) {
-			if self.is_h_wall(x, y) {
-				return ((y - origin_y as f64) * trig::isin(direction)).abs();
+
+		while self.is_within_bounds(fp::div(x, consts::FP_TILE_SIZE).to_i32(), fp::div(y, consts::FP_TILE_SIZE).to_i32()) {
+			if self.is_y_wall(fp::div(x, consts::FP_TILE_SIZE).to_i32(), fp::div(y, consts::FP_TILE_SIZE).to_i32()) {
+				return fp::mul(fp::sub(y, origin_y), trig::isin(direction)).abs();
 			}
 
-			x += step_x;
-			y += step_y;
+			x = fp::add(x, step_x);
+			y = fp::add(y, step_y);
 		}
 
-		f64::MAX
+		trig::FP_MAX_RAY_LENGTH
 	}
 
-	pub fn find_vertical_intersect(&self, origin_x: i32, origin_y: i32, direction: i32) -> f64 {
-		let step_x: f64;
-		let step_y: f64;
-		let mut x: f64;
-		let mut y: f64;
+	fn find_vertical_intersect(&self, origin_x: i32, origin_y: i32, direction: i32) -> i32 {
+		let step_x: i32; // distance to next vertical intersect
+		let step_y: i32; // distance to next horizontal intersect
+		let mut x: i32;  // x coordinate of current ray intersect
+		let mut y: i32;  // y coordinate of current ray intersect
 
 		// determine if looking left or right and find vertical intersection
 		if direction <= trig::ANGLE_90 || direction > trig::ANGLE_270 { // looking right
-			let vi = (origin_x / self.tile_size) * self.tile_size + self.tile_size;
-			
-			step_x = consts::F_TILE_SIZE;
+			let vi = ((origin_x.to_i32() / consts::TILE_SIZE) * consts::TILE_SIZE + consts::TILE_SIZE).to_fp();
+			step_x = consts::FP_TILE_SIZE;
 			step_y = trig::ystep(direction);
 			
-			x = vi as f64;
-			y = origin_y as f64 + (vi - origin_x) as f64 * trig::tan(direction);
+			x = vi;
+			y = fp::add(origin_y, fp::mul(fp::sub(vi, origin_x), trig::tan(direction)));
 		} else {
-			let vi = (origin_x / self.tile_size) * self.tile_size;
+			let vi = (((origin_x.to_i32() / consts::TILE_SIZE) * consts::TILE_SIZE)).to_fp();
 			
-			step_x = -consts::F_TILE_SIZE;
+			step_x = -consts::FP_TILE_SIZE;
 			step_y = trig::ystep(direction);
 			
-			x = (vi - consts::TILE_SIZE) as f64;
-			y = origin_y as f64 + (vi - origin_x) as f64 * trig::tan(direction);
+			x = fp::sub(vi, consts::FP_TILE_SIZE);
+			y = fp::add(origin_y, fp::mul(fp::sub(vi, origin_x), trig::tan(direction)));
 		};
 
 		if direction == trig::ANGLE_90 || direction == trig::ANGLE_270 {
-			return f64::MAX;
+			return trig::FP_MAX_RAY_LENGTH;
 		}
 
 		// Cast y axis intersect rays, build up ySlice
-		while self.is_within_bounds(x, y) {
-			if self.is_v_wall(x, y) {
-				return ((x - origin_x as f64) * trig::icos(direction)).abs();				
+		while self.is_within_bounds(fp::div(x, consts::FP_TILE_SIZE).to_i32(), fp::div(y, consts::FP_TILE_SIZE).to_i32()) {
+			if self.is_x_wall(fp::div(x, consts::FP_TILE_SIZE).to_i32(), fp::div(y, consts::FP_TILE_SIZE).to_i32()) {
+				return fp::mul(fp::sub(x, origin_x), trig::icos(direction)).abs();				
 			}
 
-			x += step_x;
-			y += step_y;
+			x = fp::add(x, step_x);
+			y = fp::add(y, step_y);
 		}
 
-		f64::MAX
+		trig::FP_MAX_RAY_LENGTH
+	}
+
+	pub fn find_closest_intersect(&self, origin_x: i32, origin_y: i32, direction: i32) -> i32 {
+		let hdist = self.find_horizontal_intersect(origin_x, origin_y, direction);
+		let vdist = self.find_vertical_intersect(origin_x, origin_y, direction);
+		vdist.min(hdist)
 	}
 }
 
@@ -187,12 +192,12 @@ mod test {
 
 		assert_eq!(world.width, width);
 		assert_eq!(world.height, height);
-		assert_eq!(world.h_walls, vec!(
+		assert_eq!(world.y_walls, vec!(
 			Tile::Wall,  Tile::Wall,  Tile::Wall,
 			Tile::Empty, Tile::Empty, Tile::Empty,
 			Tile::Wall,  Tile::Wall,  Tile::Wall
 		));
-		assert_eq!(world.v_walls, vec!(
+		assert_eq!(world.x_walls, vec!(
 			Tile::Wall, Tile::Empty, Tile::Wall,
 			Tile::Wall, Tile::Empty, Tile::Wall,
 			Tile::Wall, Tile::Empty, Tile::Wall
@@ -206,21 +211,21 @@ mod test {
 		let world_str = "WHWVOVWHW";
 		let world = World::new(width, height, world_str).unwrap();
 
-		assert_eq!(world.find_horizontal_intersect(64, 64, trig::ANGLE_0),   f64::MAX);
-		assert_eq!(world.find_horizontal_intersect(64, 64, trig::ANGLE_90),  64.0);
-		assert_eq!(world.find_horizontal_intersect(64, 64, trig::ANGLE_180), f64::MAX);
-		assert_eq!(world.find_horizontal_intersect(64, 64, trig::ANGLE_270), 64.0);
+		assert_eq!(world.find_horizontal_intersect(64.to_fp(), 64.to_fp(), trig::ANGLE_0).to_i32(),   trig::MAX_RAY_LENGTH);
+		assert_eq!(world.find_horizontal_intersect(64.to_fp(), 64.to_fp(), trig::ANGLE_90).to_i32(),  64);
+		assert_eq!(world.find_horizontal_intersect(64.to_fp(), 64.to_fp(), trig::ANGLE_180).to_i32(), trig::MAX_RAY_LENGTH);
+		assert_eq!(world.find_horizontal_intersect(64.to_fp(), 64.to_fp(), trig::ANGLE_270).to_i32(), 64);
 		
-		assert_eq!(world.find_vertical_intersect(64, 64, trig::ANGLE_0),   64.0);
-		assert_eq!(world.find_vertical_intersect(64, 64, trig::ANGLE_90),  f64::MAX);
-		assert_eq!(world.find_vertical_intersect(64, 64, trig::ANGLE_180), 64.0);
-		assert_eq!(world.find_vertical_intersect(64, 64, trig::ANGLE_270), f64::MAX);
-	}
+		assert_eq!(world.find_vertical_intersect(64.to_fp(), 64.to_fp(), trig::ANGLE_0).to_i32(),   64);
+		assert_eq!(world.find_vertical_intersect(64.to_fp(), 64.to_fp(), trig::ANGLE_90).to_i32(),  trig::MAX_RAY_LENGTH);
+		assert_eq!(world.find_vertical_intersect(64.to_fp(), 64.to_fp(), trig::ANGLE_180).to_i32(), 64);
+		assert_eq!(world.find_vertical_intersect(64.to_fp(), 64.to_fp(), trig::ANGLE_270).to_i32(), trig::MAX_RAY_LENGTH);
 
-	#[test]
-	fn cast_ray_2() {
 		let world = World::new(7, 7, "WHHHHHWVOOOOOVVOOOOOVVOOOOOVVOOOOOVVOOOOOVWHHHHHW").unwrap();
-		float_cmp::assert_approx_eq!(f64, world.find_horizontal_intersect(76, 76, 295),   0.0, epsilon = 0.00000003, ulps = 2);
-		float_cmp::assert_approx_eq!(f64, world.find_vertical_intersect(76, 76, 295),   0.0, epsilon = 0.00000003, ulps = 2);
+		assert_eq!(world.find_horizontal_intersect(76.to_fp(), 76.to_fp(), 295).to_i32(), 374);
+		assert_eq!(world.find_vertical_intersect(76.to_fp(), 76.to_fp(), 295).to_i32(), trig::MAX_RAY_LENGTH);
+
+		assert_eq!(world.find_horizontal_intersect(160.to_fp(), 160.to_fp(), 1730).to_i32(), 274);
+		assert_eq!(world.find_vertical_intersect(160.to_fp(), 160.to_fp(), 1730).to_i32(), trig::MAX_RAY_LENGTH);
 	}
 }

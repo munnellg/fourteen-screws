@@ -96,11 +96,11 @@ fn main() {
             step = TILE_SIZE / radian(i).tan();
 
             if i >= ANGLE_90 && i < ANGLE_270 {
-                if step < 0.0 {
+                if step > 0.0 {
                   step = -step;
                 }
             } else {
-                if step > 0.0 {
+                if step < 0.0 {
                   step = -step;
                 }
             }
