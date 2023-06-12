@@ -1,29 +1,18 @@
-use crate::consts::PROJECTION_PLANE_WIDTH;
-use crate::fp::ToFixedPoint;
+use crate::consts::{ PROJECTION_PLANE_WIDTH, MAX_RAY_LENGTH };
 use core::f64::consts::PI;
 
 include!(concat!(env!("OUT_DIR"), "/lookup.rs"));
 
-pub const ANGLE_0:   i32 = 0;
 pub const ANGLE_60:  i32 = PROJECTION_PLANE_WIDTH;
+
+pub const ANGLE_0:   i32 = 0;
+pub const ANGLE_5:   i32 = ANGLE_60 / 12;
+pub const ANGLE_10:  i32 = ANGLE_60 / 6;
 pub const ANGLE_30:  i32 = ANGLE_60 / 2;
 pub const ANGLE_90:  i32 = ANGLE_30 * 3;
 pub const ANGLE_180: i32 = ANGLE_60 * 3;
 pub const ANGLE_270: i32 = ANGLE_90 * 3;
 pub const ANGLE_360: i32 = ANGLE_60 * 6;
-
-pub const MAX_RAY_LENGTH: i32 = 2048;
-pub const FP_MAX_RAY_LENGTH: i32 = MAX_RAY_LENGTH << 16;
-
-fn clamp(x: i32, min: i32, max: i32) -> i32 {
-	if x < min {
-		min
-	} else if x > max {
-		max
-	} else {
-		x
-	}
-}
 
 pub fn radian(angle: i32) -> f64 {
 	angle as f64 * PI / ANGLE_180 as f64

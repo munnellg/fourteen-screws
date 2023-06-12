@@ -109,11 +109,11 @@ impl World {
 
 			let hi = ((origin_y.to_i32() / consts::TILE_SIZE) * consts::TILE_SIZE).to_fp();
 			x = fp::add(origin_x, fp::mul(fp::sub(hi, origin_y), trig::itan(direction)));
-			y = fp::sub(hi, consts::FP_TILE_SIZE);
+			y = hi; // fp::sub(hi, 1.to_fp());
 		}
 
 		if direction == trig::ANGLE_0 || direction == trig::ANGLE_180 {
-			return trig::FP_MAX_RAY_LENGTH;
+			return consts::FP_MAX_RAY_LENGTH;
 		}
 
 		// Cast x axis intersect rays, build up xSlice
@@ -127,7 +127,7 @@ impl World {
 			y = fp::add(y, step_y);
 		}
 
-		trig::FP_MAX_RAY_LENGTH
+		consts::FP_MAX_RAY_LENGTH
 	}
 
 	fn find_vertical_intersect(&self, origin_x: i32, origin_y: i32, direction: i32) -> i32 {
@@ -150,17 +150,18 @@ impl World {
 			step_x = -consts::FP_TILE_SIZE;
 			step_y = trig::ystep(direction);
 			
-			x = fp::sub(vi, consts::FP_TILE_SIZE);
+			x = vi; //fp::sub(vi, 1.to_fp());
 			y = fp::add(origin_y, fp::mul(fp::sub(vi, origin_x), trig::tan(direction)));
 		};
 
 		if direction == trig::ANGLE_90 || direction == trig::ANGLE_270 {
-			return trig::FP_MAX_RAY_LENGTH;
+			return consts::FP_MAX_RAY_LENGTH;
 		}
 
 		// Cast y axis intersect rays, build up ySlice
 		while self.is_within_bounds(fp::div(x, consts::FP_TILE_SIZE).to_i32(), fp::div(y, consts::FP_TILE_SIZE).to_i32()) {
 			if self.is_x_wall(fp::div(x, consts::FP_TILE_SIZE).to_i32(), fp::div(y, consts::FP_TILE_SIZE).to_i32()) {
+				println!("V Intersect ({} {})", x.to_i32(), y.to_i32());
 				return fp::mul(fp::sub(x, origin_x), trig::icos(direction)).abs();				
 			}
 
@@ -168,7 +169,7 @@ impl World {
 			y = fp::add(y, step_y);
 		}
 
-		trig::FP_MAX_RAY_LENGTH
+		consts::FP_MAX_RAY_LENGTH
 	}
 
 	pub fn find_closest_intersect(&self, origin_x: i32, origin_y: i32, direction: i32) -> i32 {
@@ -211,21 +212,24 @@ mod test {
 		let world_str = "WHWVOVWHW";
 		let world = World::new(width, height, world_str).unwrap();
 
-		assert_eq!(world.find_horizontal_intersect(64.to_fp(), 64.to_fp(), trig::ANGLE_0).to_i32(),   trig::MAX_RAY_LENGTH);
+		assert_eq!(world.find_horizontal_intersect(64.to_fp(), 64.to_fp(), trig::ANGLE_0).to_i32(),   consts::MAX_RAY_LENGTH);
 		assert_eq!(world.find_horizontal_intersect(64.to_fp(), 64.to_fp(), trig::ANGLE_90).to_i32(),  64);
-		assert_eq!(world.find_horizontal_intersect(64.to_fp(), 64.to_fp(), trig::ANGLE_180).to_i32(), trig::MAX_RAY_LENGTH);
+		assert_eq!(world.find_horizontal_intersect(64.to_fp(), 64.to_fp(), trig::ANGLE_180).to_i32(), consts::MAX_RAY_LENGTH);
 		assert_eq!(world.find_horizontal_intersect(64.to_fp(), 64.to_fp(), trig::ANGLE_270).to_i32(), 64);
 		
 		assert_eq!(world.find_vertical_intersect(64.to_fp(), 64.to_fp(), trig::ANGLE_0).to_i32(),   64);
-		assert_eq!(world.find_vertical_intersect(64.to_fp(), 64.to_fp(), trig::ANGLE_90).to_i32(),  trig::MAX_RAY_LENGTH);
+		assert_eq!(world.find_vertical_intersect(64.to_fp(), 64.to_fp(), trig::ANGLE_90).to_i32(),  consts::MAX_RAY_LENGTH);
 		assert_eq!(world.find_vertical_intersect(64.to_fp(), 64.to_fp(), trig::ANGLE_180).to_i32(), 64);
-		assert_eq!(world.find_vertical_intersect(64.to_fp(), 64.to_fp(), trig::ANGLE_270).to_i32(), trig::MAX_RAY_LENGTH);
+		assert_eq!(world.find_vertical_intersect(64.to_fp(), 64.to_fp(), trig::ANGLE_270).to_i32(), consts::MAX_RAY_LENGTH);
 
 		let world = World::new(7, 7, "WHHHHHWVOOOOOVVOOOOOVVOOOOOVVOOOOOVVOOOOOVWHHHHHW").unwrap();
 		assert_eq!(world.find_horizontal_intersect(76.to_fp(), 76.to_fp(), 295).to_i32(), 374);
-		assert_eq!(world.find_vertical_intersect(76.to_fp(), 76.to_fp(), 295).to_i32(), trig::MAX_RAY_LENGTH);
+		assert_eq!(world.find_vertical_intersect(76.to_fp(), 76.to_fp(), 295).to_i32(), consts::MAX_RAY_LENGTH);
 
 		assert_eq!(world.find_horizontal_intersect(160.to_fp(), 160.to_fp(), 1730).to_i32(), 274);
-		assert_eq!(world.find_vertical_intersect(160.to_fp(), 160.to_fp(), 1730).to_i32(), trig::MAX_RAY_LENGTH);
+		assert_eq!(world.find_vertical_intersect(160.to_fp(), 160.to_fp(), 1730).to_i32(), consts::MAX_RAY_LENGTH);
+
+		let world = World::new(13, 6, "WHHHHWHWHHHHWVOOOOVOVOOOOVVOOOOVOVOOOOVVOOOOVOOOOOOVVOOOOOOVOOOOVWHHHHWHWHHHWW").unwrap();
+		assert_eq!(world.find_vertical_intersect(698.to_fp(), 145.to_fp(), 820).to_i32(), 278);
 	}
 }

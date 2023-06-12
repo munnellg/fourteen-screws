@@ -11,13 +11,6 @@ pub trait FromFixedPoint {
     fn to_i32(&self) -> i32;
 }
 
-pub trait FixedPointMath {
-	fn fp_add(&self, b: i32) -> i32;
-	fn fp_sub(&self, b: i32) -> i32;
-	fn fp_mul(&self, b: i32) -> i32;
-	fn fp_div(&self, b: i32) -> i32;
-}
-
 impl ToFixedPoint for f64 {
     fn to_fp(&self) -> i32 {
         (*self * FP_MULT) as i32

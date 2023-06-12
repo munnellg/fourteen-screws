@@ -34,7 +34,7 @@ pub struct Cluiche {
 impl Cluiche {
 	pub fn new() -> Cluiche {
 		let world = raycast::World::new(13, 6, "WHHHHWHWHHHHWVOOOOVOVOOOOVVOOOOVOVOOOOVVOOOOVOOOOOOVVOOOOOOVOOOOVWHHHHWHWHHHWW").unwrap();
-		let player = raycast::Player::new(160, 160, 0, 5, 5);
+		let player = raycast::Player::new(160, 160, 0, 5, 10);
 		Cluiche { world, player }
 	}
 
@@ -238,6 +238,9 @@ impl Cluiche {
 		}
 
 		self.player.pos(x1, y1);
+
+		log!("pos=({}, {}) a={}", self.player.x, self.player.y, self.player.rotation);
+
 		hit_result
 	}
 
@@ -259,10 +262,12 @@ impl Cluiche {
 
 	pub fn player_turn_left(&mut self) {
 		self.player.rotation(self.player.rotation - self.player.rotate_speed);
+		log!("pos=({}, {}) a={}", self.player.x, self.player.y, self.player.rotation);
 	}
 
 	pub fn player_turn_right(&mut self) {
 		self.player.rotation(self.player.rotation + self.player.rotate_speed);
+		log!("pos=({}, {}) a={}", self.player.x, self.player.y, self.player.rotation);
 	}
 
 	fn draw_wall_column(&self, buf: &mut[u8], column: i32, dist: i32) {
@@ -280,15 +285,43 @@ impl Cluiche {
 		for y in y_min..=y_max {
 			let idx: usize = 4 * (column + y * consts::PROJECTION_PLANE_WIDTH) as usize;
 			buf[idx + 0] = colour as u8;
-			buf[idx + 1] = 0x00;
-			buf[idx + 2] = 0x00;
+			buf[idx + 1] = colour as u8;
+			buf[idx + 2] = colour as u8;
 			buf[idx + 3] = 0xFF; // alpha channel
 		}
 	}
 
+	fn draw_background(&self, buf: &mut[u8]) {
+		let mut c = 255;
+
+		for y in 0..consts::PROJECTION_PLANE_HEIGHT / 2 {
+			for x in 0..consts::PROJECTION_PLANE_WIDTH {
+				let idx: usize = 4 * (x + y * consts::PROJECTION_PLANE_WIDTH) as usize;
+				buf[idx + 0] = c;
+				buf[idx + 1] = 0x7D;
+				buf[idx + 2] = 0xE1;
+				buf[idx + 3] = 0xFF; // alpha channel				
+			}
+
+			c -= 1;
+		}
+
+		c = 22;
+		for y in consts::PROJECTION_PLANE_HEIGHT / 2..consts::PROJECTION_PLANE_HEIGHT {
+			for x in 0..consts::PROJECTION_PLANE_WIDTH {
+				let idx: usize = 4 * (x + y * consts::PROJECTION_PLANE_WIDTH) as usize;
+				buf[idx + 0] = c;
+				buf[idx + 1] = 20;
+				buf[idx + 2] = 20;
+				buf[idx + 3] = 0xFF; // alpha channel
+			}
+
+			c += 1;
+		}
+	}
+
 	pub fn render(&mut self, buf: &mut[u8]) {
-		// draw a grey background that will represent the ceiling and floor
-		for x in &mut *buf { *x = 128; }
+		self.draw_background(buf);
 
 		// theta is the direction player is facing
 		// need to start out sweep 30 degrees to the left
@@ -301,6 +334,7 @@ impl Cluiche {
 		// ray casting uses fixed point notation, so convert player coordinates to fixed point
 		let origin_x = self.player.x.to_fp();
 		let origin_y = self.player.y.to_fp();
+
 
 		// sweep of the rays will be through 60 degrees
 		for sweep in 0..trig::ANGLE_60 {
