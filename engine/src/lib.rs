@@ -336,31 +336,25 @@ impl Cluiche {
 	}
 
 	fn draw_background(&self, buf: &mut[u8]) {
-		let mut c = 255;
 
 		for y in 0..consts::PROJECTION_PLANE_HEIGHT / 2 {
 			for x in 0..consts::PROJECTION_PLANE_WIDTH {
 				let idx: usize = 4 * (x + y * consts::PROJECTION_PLANE_WIDTH) as usize;
-				buf[idx + 0] = c;
-				buf[idx + 1] = 0x7D;
-				buf[idx + 2] = 0xE1;
+				buf[idx + 0] = 0x38;
+				buf[idx + 1] = 0x38;
+				buf[idx + 2] = 0x38;
 				buf[idx + 3] = 0xFF; // alpha channel				
 			}
-
-			c -= 1;
 		}
 
-		c = 22;
 		for y in consts::PROJECTION_PLANE_HEIGHT / 2..consts::PROJECTION_PLANE_HEIGHT {
 			for x in 0..consts::PROJECTION_PLANE_WIDTH {
 				let idx: usize = 4 * (x + y * consts::PROJECTION_PLANE_WIDTH) as usize;
-				buf[idx + 0] = c;
-				buf[idx + 1] = 20;
-				buf[idx + 2] = 20;
+				buf[idx + 0] = 0x70;
+				buf[idx + 1] = 0x70;
+				buf[idx + 2] = 0x70;
 				buf[idx + 3] = 0xFF; // alpha channel
 			}
-
-			c += 1;
 		}
 	}
 
