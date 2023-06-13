@@ -1,5 +1,7 @@
-extern crate web_sys;
+use base64::{Engine as _, engine::general_purpose};
+use fp::{ ToFixedPoint, FromFixedPoint };
 use wasm_bindgen::prelude::*;
+extern crate web_sys;
 
 mod consts;
 mod trig;
@@ -7,11 +9,35 @@ mod utils;
 mod raycast;
 mod fp;
 
-use fp::{ ToFixedPoint, FromFixedPoint };
-
 macro_rules! log {
 	( $( $t:tt )* ) => {
 		web_sys::console::log_1(&format!( $( $t )* ).into());
+	}
+}
+
+struct TextureMap {
+	texture_width: usize,
+	texture_height: usize,
+	texture_size: usize,
+	num_textures: usize,
+	textures: Vec<u8>
+}
+
+impl TextureMap {
+	pub fn new(texture_width: usize, texture_height: usize, textures: Vec<u8>) -> TextureMap {
+		let texture_size = texture_width * texture_height;
+		let num_textures = textures.len() / (texture_size * 4);
+		TextureMap { texture_width, texture_height, texture_size, num_textures, textures }
+	}
+
+	pub fn empty() -> TextureMap {
+		TextureMap { texture_width: 0, texture_height: 0, texture_size: 0, num_textures: 0, textures: vec![] }
+	}
+
+	pub fn get(&self, code: u8, column: i32, flipped: bool) -> &[u8] {
+		let column = if flipped { self.texture_width - 1 - column as usize } else { column as usize };
+		let pos: usize = (self.texture_size * code as usize + column as usize * self.texture_width) * 4 as usize;
+		&self.textures[pos..pos + self.texture_size]
 	}
 }
 
@@ -28,6 +54,7 @@ enum HitResult {
 pub struct Cluiche {
 	world: raycast::World,
 	player: raycast::Player,
+	textures: TextureMap,
 }
 
 #[wasm_bindgen]
@@ -35,7 +62,13 @@ impl Cluiche {
 	pub fn new() -> Cluiche {
 		let world = raycast::World::new(13, 6, "WHHHHWHWHHHHWVOOOOVOVOOOOVVOOOOVOVOOOOVVOOOOVOOOOOOVVOOOOOOVOOOOVWHHHHWHWHHHWW").unwrap();
 		let player = raycast::Player::new(160, 160, 0, 5, 10);
-		Cluiche { world, player }
+		let textures = TextureMap::empty();
+		Cluiche { world, player, textures }
+	}
+
+	pub fn load_textures(&mut self, encoded: &str) {
+		let bytes: Vec<u8> = general_purpose::STANDARD_NO_PAD.decode(encoded).expect("failed to decode textures");
+		self.textures = TextureMap::new(consts::TEXTURE_WIDTH, consts::TEXTURE_HEIGHT, bytes);
 	}
 
 	fn move_player(&mut self, mut direction: i32, amount: i32) -> HitResult {
@@ -239,8 +272,6 @@ impl Cluiche {
 
 		self.player.pos(x1, y1);
 
-		log!("pos=({}, {}) a={}", self.player.x, self.player.y, self.player.rotation);
-
 		hit_result
 	}
 
@@ -262,32 +293,45 @@ impl Cluiche {
 
 	pub fn player_turn_left(&mut self) {
 		self.player.rotation(self.player.rotation - self.player.rotate_speed);
-		log!("pos=({}, {}) a={}", self.player.x, self.player.y, self.player.rotation);
 	}
 
 	pub fn player_turn_right(&mut self) {
 		self.player.rotation(self.player.rotation + self.player.rotate_speed);
-		log!("pos=({}, {}) a={}", self.player.x, self.player.y, self.player.rotation);
 	}
 
-	fn draw_wall_column(&self, buf: &mut[u8], column: i32, dist: i32) {
+	fn draw_wall_column(&self, buf: &mut[u8], column: i32, slice: raycast::Slice, dist: i32) {
 		// get wall texture, draw into column
 		let wall_height: i32 = trig::wall_height(dist);
 
 		let y_min = std::cmp::max(0, (200 - wall_height) / 2);
 		let y_max = std::cmp::min(200 - 1, y_min + wall_height);
 
-		let mut colour: i32 = 255 - ((dist as f64 / 750.0) * 255.0) as i32;
-		
-		if colour < 20  { colour = 20; }
-		if colour > 255 { colour = 255; }
+		if let raycast::TextureCode::Wall(code, texture_column, flipped) = slice.texture {
+			let texture = self.textures.get(code, texture_column, flipped);
+			let step: f64 = consts::TEXTURE_HEIGHT as f64 / wall_height as f64;
 
-		for y in y_min..=y_max {
-			let idx: usize = 4 * (column + y * consts::PROJECTION_PLANE_WIDTH) as usize;
-			buf[idx + 0] = colour as u8;
-			buf[idx + 1] = colour as u8;
-			buf[idx + 2] = colour as u8;
-			buf[idx + 3] = 0xFF; // alpha channel
+			// Starting texture coordinate
+			let mut tex_pos: f64 = (y_min as f64 - consts::PROJECTION_PLANE_HEIGHT as f64/ 2.0 + wall_height as f64 / 2.0) * step;
+			for y in y_min..=y_max {
+				// Cast the texture coordinate to integer, and mask with (texHeight - 1) in case of overflow
+				let tex_y = (tex_pos as usize & (consts::TEXTURE_HEIGHT - 1)) * 4;
+				let idx: usize = 4 * (column + y * consts::PROJECTION_PLANE_WIDTH) as usize;
+
+				buf[idx + 0] = texture[tex_y + 0] as u8;
+				buf[idx + 1] = texture[tex_y + 1] as u8;
+				buf[idx + 2] = texture[tex_y + 2] as u8;
+				buf[idx + 3] = texture[tex_y + 3]; // alpha channel
+				tex_pos += step;
+			}
+
+			// for y in y_min..=y_max {
+			// 	let tex_y = ((y - y_min) as f64 * scale) as usize * 4;
+			// 	let idx: usize = 4 * (column + y * consts::PROJECTION_PLANE_WIDTH) as usize;
+			// 	buf[idx + 0] = texture[tex_y + 0] as u8;
+			// 	buf[idx + 1] = texture[tex_y + 1] as u8;
+			// 	buf[idx + 2] = texture[tex_y + 2] as u8;
+			// 	buf[idx + 3] = texture[tex_y + 3]; // alpha channel
+			// }
 		}
 	}
 
@@ -338,10 +382,10 @@ impl Cluiche {
 
 		// sweep of the rays will be through 60 degrees
 		for sweep in 0..trig::ANGLE_60 {
-			let dist = self.world.find_closest_intersect(origin_x, origin_y, angle);
-			let dist = fp::div(dist, trig::fisheye_correction(sweep));
+			let slice = self.world.find_closest_intersect(origin_x, origin_y, angle);
+			let dist = fp::div(slice.distance, trig::fisheye_correction(sweep));
 
-			self.draw_wall_column(buf, sweep, dist.to_i32());
+			self.draw_wall_column(buf, sweep, slice, dist.to_i32());
 
 			angle += 1;
 			if angle >= trig::ANGLE_360 {

@@ -1,0 +1,9 @@
+[package]
+name = "img2tex"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+png = "0.17.9"
+clap = { version = "4.3.0", features = ["derive", "wrap_help"] }
+base64 = "0.21.2"

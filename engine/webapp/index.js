@@ -1,7 +1,11 @@
 import * as wasm from "fourteen-screws";
 import { Cluiche } from "fourteen-screws";
 
+let demo_level = require('./demo-level');
+let textures = demo_level.textures;
+
 const cluiche = Cluiche.new();
+cluiche.load_textures(textures);
 
 let canvas   = document.getElementById("canvas");
 let context  = canvas.getContext("2d");
