@@ -3,11 +3,12 @@ use crate::consts;
 use crate::fp;
 use crate::fp::{ ToFixedPoint, FromFixedPoint };
 
+#[derive(Debug, Copy, Clone)]
 pub enum TextureCode {
-	None,
 	Wall(u8, i32, bool)
 }
 
+#[derive(Debug, Copy, Clone)]
 pub struct Slice {
 	pub texture: TextureCode,
 	pub distance: i32,
@@ -48,7 +49,8 @@ impl Player {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tile {
 	Empty,
-	Wall,
+	Wall(u8, bool),
+	OutOfBounds,
 }
 
 pub struct World {
@@ -71,7 +73,7 @@ impl World {
 		let y_walls: Vec<Tile> = map_str.chars()
 			.map(|c| {
 				if c == 'W' || c == 'H' {
-					Tile::Wall
+					Tile::Wall(3, false)
 				} else {
 					Tile::Empty
 				}
@@ -81,7 +83,9 @@ impl World {
 		let x_walls: Vec<Tile> = map_str.chars()
 			.map(|c| {
 				if c == 'W' || c == 'V' {
-					Tile::Wall
+					Tile::Wall(3, false)
+				} else if c == 'X' {
+					Tile::Wall(1, true)
 				} else {
 					Tile::Empty
 				}
@@ -95,119 +99,146 @@ impl World {
 		x >= 0 && x < self.width && y >= 0 && y < self.height
 	}
 
-	pub fn is_y_wall(&self, x:i32, y:i32) -> bool {
-		if !self.is_within_bounds(x, y) { return true; }
-		self.y_walls[(x + y  * self.width) as usize] == Tile::Wall
+	pub fn y_wall(&self, x: i32, y: i32) -> Tile {
+		if !self.is_within_bounds(x, y) { return Tile::OutOfBounds; }
+		self.y_walls[(x + y  * self.width) as usize]
 	}
 
-	pub fn is_x_wall(&self, x:i32, y:i32) -> bool {
-		if !self.is_within_bounds(x, y) { return true; }
-		self.x_walls[(x + y  * self.width) as usize] == Tile::Wall
+	pub fn x_wall(&self, x: i32, y: i32) -> Tile {
+		if !self.is_within_bounds(x, y) { return Tile::OutOfBounds; }
+		self.x_walls[(x + y  * self.width) as usize]
 	}
 
-	fn find_horizontal_intersect(&self, origin_x: i32, origin_y: i32, direction: i32) -> Slice {
+	fn find_horizontal_intersect(&self, origin_x: i32, origin_y: i32, direction: i32) -> Vec<Slice> {
 		let step_x: i32; // distance to next vertical intersect
 		let step_y: i32; // distance to next horizontal intersect
 		let mut x: i32;  // x coordinate of current ray intersect
 		let mut y: i32;  // y coordinate of current ray intersect
 		let flipped: bool;
+
+		let mut slices = Vec::new();
 
 		// determine if looking up or down and find horizontal intersection
 		if direction > trig::ANGLE_0 && direction < trig::ANGLE_180 { // looking down
 			step_x = trig::xstep(direction);
 			step_y = consts::FP_TILE_SIZE;
 
-			let hi = ((origin_y.to_i32() / consts::TILE_SIZE) * consts::TILE_SIZE + consts::TILE_SIZE).to_fp();
-			x = fp::add(origin_x, fp::mul(fp::sub(hi, origin_y), trig::itan(direction)));
-			y = hi;
+			y = ((origin_y.to_i32() / consts::TILE_SIZE) * consts::TILE_SIZE + consts::TILE_SIZE).to_fp();
+			x = fp::add(origin_x, fp::mul(fp::sub(y, origin_y), trig::itan(direction)));
 			flipped = true;
 		} else {                     // looking up
 			step_x = trig::xstep(direction);
 			step_y = -consts::FP_TILE_SIZE;
 
-			let hi = ((origin_y.to_i32() / consts::TILE_SIZE) * consts::TILE_SIZE).to_fp();
-			x = fp::add(origin_x, fp::mul(fp::sub(hi, origin_y), trig::itan(direction)));
-			y = hi;
+			y = ((origin_y.to_i32() / consts::TILE_SIZE) * consts::TILE_SIZE).to_fp();
+			x = fp::add(origin_x, fp::mul(fp::sub(y, origin_y), trig::itan(direction)));
 			flipped = false;
 		}
 
 		if direction == trig::ANGLE_0 || direction == trig::ANGLE_180 {
-			return Slice::new(TextureCode::None, consts::FP_MAX_RAY_LENGTH);
+			return slices;
+			// return Slice::new(TextureCode::None, consts::FP_MAX_RAY_LENGTH);
 		}
 
 		// Cast x axis intersect rays, build up xSlice
 
 		while self.is_within_bounds(fp::div(x, consts::FP_TILE_SIZE).to_i32(), fp::div(y, consts::FP_TILE_SIZE).to_i32()) {
-			if self.is_y_wall(fp::div(x, consts::FP_TILE_SIZE).to_i32(), fp::div(y, consts::FP_TILE_SIZE).to_i32()) {
-				return Slice::new(
-					TextureCode::Wall(3, x.to_i32() % consts::TILE_SIZE, flipped),
+			if let Tile::Wall(texture, _) = self.y_wall(fp::div(x, consts::FP_TILE_SIZE).to_i32(), fp::div(y, consts::FP_TILE_SIZE).to_i32()) {
+				let slice = Slice::new(
+					TextureCode::Wall(texture, x.to_i32() % consts::TILE_SIZE, flipped),
 					fp::mul(fp::sub(y, origin_y), trig::isin(direction)).abs(),					
 				);
+				slices.push(slice);
 			}
 
 			x = fp::add(x, step_x);
 			y = fp::add(y, step_y);
 		}
 
-		Slice::new(TextureCode::None, consts::FP_MAX_RAY_LENGTH)
+		slices
 	}
 
-	fn find_vertical_intersect(&self, origin_x: i32, origin_y: i32, direction: i32) -> Slice {
+	fn find_vertical_intersect(&self, origin_x: i32, origin_y: i32, direction: i32) -> Vec<Slice> {
 		let step_x: i32; // distance to next vertical intersect
 		let step_y: i32; // distance to next horizontal intersect
 		let mut x: i32;  // x coordinate of current ray intersect
 		let mut y: i32;  // y coordinate of current ray intersect
 		let flipped: bool;
 
+		let mut slices = Vec::new();
+
 		// determine if looking left or right and find vertical intersection
 		if direction <= trig::ANGLE_90 || direction > trig::ANGLE_270 { // looking right
-			let vi = ((origin_x.to_i32() / consts::TILE_SIZE) * consts::TILE_SIZE + consts::TILE_SIZE).to_fp();
 			step_x = consts::FP_TILE_SIZE;
 			step_y = trig::ystep(direction);
 			
-			x = vi;
-			y = fp::add(origin_y, fp::mul(fp::sub(vi, origin_x), trig::tan(direction)));
+			x = ((origin_x.to_i32() / consts::TILE_SIZE) * consts::TILE_SIZE + consts::TILE_SIZE).to_fp();
+			y = fp::add(origin_y, fp::mul(fp::sub(x, origin_x), trig::tan(direction)));
+			
 			flipped = false;
 		} else {
-			let vi = (((origin_x.to_i32() / consts::TILE_SIZE) * consts::TILE_SIZE)).to_fp();
-			
 			step_x = -consts::FP_TILE_SIZE;
 			step_y = trig::ystep(direction);
 			
-			x = vi; //fp::sub(vi, 1.to_fp());
-			y = fp::add(origin_y, fp::mul(fp::sub(vi, origin_x), trig::tan(direction)));
+			x = (((origin_x.to_i32() / consts::TILE_SIZE) * consts::TILE_SIZE)).to_fp();
+			y = fp::add(origin_y, fp::mul(fp::sub(x, origin_x), trig::tan(direction)));
+			
 			flipped = true;
 		};
 
 		if direction == trig::ANGLE_90 || direction == trig::ANGLE_270 {
-			return Slice::new(TextureCode::None, consts::FP_MAX_RAY_LENGTH);
+			return slices;
 		}
 
 		// Cast y axis intersect rays, build up ySlice
 		while self.is_within_bounds(fp::div(x, consts::FP_TILE_SIZE).to_i32(), fp::div(y, consts::FP_TILE_SIZE).to_i32()) {
-			if self.is_x_wall(fp::div(x, consts::FP_TILE_SIZE).to_i32(), fp::div(y, consts::FP_TILE_SIZE).to_i32()) {
-				return Slice::new(
-					TextureCode::Wall(3, y.to_i32() % consts::TILE_SIZE, flipped),
+			if let Tile::Wall(texture, _) = self.x_wall(fp::div(x, consts::FP_TILE_SIZE).to_i32(), fp::div(y, consts::FP_TILE_SIZE).to_i32()) {
+				let slice = Slice::new(
+					TextureCode::Wall(texture, y.to_i32() % consts::TILE_SIZE, flipped),
 					fp::mul(fp::sub(x, origin_x), trig::icos(direction)).abs()
-				);				
+				);
+
+				slices.push(slice);
 			}
 
 			x = fp::add(x, step_x);
 			y = fp::add(y, step_y);
 		}
 
-		Slice::new(TextureCode::None, consts::FP_MAX_RAY_LENGTH)
+		slices
 	}
 
-	pub fn find_closest_intersect(&self, origin_x: i32, origin_y: i32, direction: i32) -> Slice {
-		let hslice = self.find_horizontal_intersect(origin_x, origin_y, direction);
-		let vslice = self.find_vertical_intersect(origin_x, origin_y, direction);
+	pub fn find_closest_intersect(&self, origin_x: i32, origin_y: i32, direction: i32) -> Vec<Slice> {
+		let hslices = self.find_horizontal_intersect(origin_x, origin_y, direction);
+		let vslices = self.find_vertical_intersect(origin_x, origin_y, direction);
 		
-		if hslice.distance < vslice.distance {
-			hslice
-		} else {
-			vslice
+		let mut slices = Vec::new();
+		slices.reserve(hslices.len() + vslices.len());
+
+		let mut i = 0;
+		let mut j = 0;
+
+		while i < hslices.len() && j < vslices.len() {
+			if hslices[i].distance < vslices[j].distance {
+				slices.push(hslices[i]);
+				i += 1;
+			} else {
+				slices.push(vslices[j]);
+				j += 1;
+			}
 		}
+
+		while i < hslices.len() {			
+			slices.push(hslices[i]);
+			i += 1;
+		}
+
+		while j < vslices.len() {
+			slices.push(vslices[j]);
+			j += 1;
+		}
+
+		slices
 	}
 }
 

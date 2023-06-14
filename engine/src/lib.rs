@@ -60,7 +60,7 @@ pub struct Cluiche {
 #[wasm_bindgen]
 impl Cluiche {
 	pub fn new() -> Cluiche {
-		let world = raycast::World::new(13, 6, "WHHHHWHWHHHHWVOOOOVOVOOOOVVOOOOVOVOOOOVVOOOOVOOOOOOVVOOOOOOVOOOOVWHHHHWHWHHHWW").unwrap();
+		let world = raycast::World::new(13, 6, "WHHHHWHWHHHHWVOOOOVOVOOOOVVOOOOVOVOOOOVVOOOOVOXOOOOVVOOOOXOVOOOOVWHHHHWHWHHHWW").unwrap();
 		let player = raycast::Player::new(160, 160, 0, 5, 10);
 		let textures = TextureMap::empty();
 		Cluiche { world, player, textures }
@@ -93,8 +93,8 @@ impl Cluiche {
 		let grid_y = y_top / consts::TILE_SIZE;
 
 		if x1 < xp { // are we moving left
-			if self.world.is_x_wall(grid_x, grid_y) {
-				if x1 < x_left || (x1 - x_left).abs() < 28 { // we crossed the wall or we're too close
+			if let raycast::Tile::Wall(texture, passable) = self.world.x_wall(grid_x, grid_y) {
+				if !passable && (x1 < x_left || (x1 - x_left).abs() < 28) { // we crossed the wall or we're too close
 					x1 = xp;
 					hit_result = HitResult::SlideX;
 				}
@@ -102,8 +102,8 @@ impl Cluiche {
 		}
 
 		if x1 > xp { // are we moving right
-			if self.world.is_x_wall(grid_x + 1, grid_y) { // wall found in current square (right edge)
-				if x1 > x_right || (x_right - x1).abs() < 28 { // we crossed the wall or we're too close
+			if let raycast::Tile::Wall(texture, passable) = self.world.x_wall(grid_x + 1, grid_y) { // wall found in current square (right edge)
+				if !passable && (x1 > x_right || (x_right - x1).abs() < 28) { // we crossed the wall or we're too close
 					x1 = xp;
 					hit_result = HitResult::SlideX;
 				}
@@ -111,8 +111,8 @@ impl Cluiche {
 		}
 
 		if y1 < yp { // are we moving up			
-			if self.world.is_y_wall(grid_x, grid_y) {
-				if y1 < y_top || (y1 - y_top).abs() < 28 {
+			if let raycast::Tile::Wall(texture, passable) = self.world.y_wall(grid_x, grid_y) {
+				if !passable && (y1 < y_top || (y1 - y_top).abs() < 28) {
 					y1 = yp;
 					hit_result = HitResult::SlideY;
 				}
@@ -120,8 +120,8 @@ impl Cluiche {
 		}
 
 		if y1 > yp { // are we moving down
-			if self.world.is_y_wall(grid_x, grid_y + 1) {
-				if y1 > y_bottom || (y_bottom - y1).abs() < 28 {
+			if let raycast::Tile::Wall(texture, passable) = self.world.y_wall(grid_x, grid_y + 1) {
+				if !passable && (y1 > y_bottom || (y_bottom - y1).abs() < 28) {
 					y1 = yp;
 					hit_result = HitResult::SlideY;
 				}
@@ -141,29 +141,33 @@ impl Cluiche {
 				
 				// check region A-top left area of grid
 				if x1 < x_left + 32 { // new x position falls in left half
-					let m_code_x = self.world.is_x_wall(grid_x, grid_y - 1); // check adjacent x wall (to left)
-					let m_code_y = self.world.is_y_wall(grid_x - 1, grid_y); // check adjacent y wall (above)
-					
-					if m_code_x && y1 < (y_top + 28) { // adjacent x wall found and new y coord is within 28 units
-						if x1 < x_left + 28 {
-							if xp > x_left + 27 {
-								x1 = xp;
-								hit_result = HitResult::SlideX;
-							} else {
-								y1 = yp;
-								hit_result = HitResult::SlideY;
+
+					// check adjacent x wall (to left)
+					if let raycast::Tile::Wall(_, x_passable) = self.world.x_wall(grid_x, grid_y - 1) { 
+						if !x_passable && y1 < (y_top + 28) { // adjacent x wall found and new y coord is within 28 units
+							if x1 < x_left + 28 {
+								if xp > x_left + 27 {
+									x1 = xp;
+									hit_result = HitResult::SlideX;
+								} else {
+									y1 = yp;
+									hit_result = HitResult::SlideY;
+								}
 							}
 						}
 					}
 
-					if m_code_y && x1 < x_left + 28 {
-						if y1 < y_top + 28 {
-							if yp > y_top + 27 {
-								y1 = yp;
-								hit_result = HitResult::SlideY;
-							} else {
-								x1 = xp;
-								hit_result = HitResult::SlideX;
+					// check adjacent y wall (above)
+					if let raycast::Tile::Wall(_, y_passable) = self.world.y_wall(grid_x - 1, grid_y) {
+						if !y_passable && x1 < x_left + 28 {
+							if y1 < y_top + 28 {
+								if yp > y_top + 27 {
+									y1 = yp;
+									hit_result = HitResult::SlideY;
+								} else {
+									x1 = xp;
+									hit_result = HitResult::SlideX;
+								}
 							}
 						}
 					}
@@ -171,28 +175,33 @@ impl Cluiche {
 
 				// check region B-top right area
 				if x1 > x_right - 32 && hit_result == HitResult::Nothing {
-					let m_code_x = self.world.is_x_wall(grid_x + 1, grid_y - 1); // check adjacent x wall (to right)
-					let m_code_y = self.world.is_y_wall(grid_x + 1, grid_y); // check adjacent y wall (above)
-					if m_code_x && y1 < y_top + 28 {
-						if x1 > x_right - 28 {
-							if xp < x_right - 27 {
-								x1 = xp;
-								hit_result = HitResult::SlideX;
-							} else {
-								y1 = yp;
-								hit_result = HitResult::SlideY;
+					
+					// check adjacent x wall (to right)
+					if let raycast::Tile::Wall(_, x_passable) = self.world.x_wall(grid_x + 1, grid_y - 1) {
+						if !x_passable && y1 < y_top + 28 {
+							if x1 > x_right - 28 {
+								if xp < x_right - 27 {
+									x1 = xp;
+									hit_result = HitResult::SlideX;
+								} else {
+									y1 = yp;
+									hit_result = HitResult::SlideY;
+								}
 							}
 						}
 					}
 
-					if m_code_y && x1 > x_right - 28 {
-						if y1 < y_top + 28 {
-							if yp < y_top + 27 {
-								y1 = yp;
-								hit_result = HitResult::SlideY;
-							} else {
-								x1 = xp;
-								hit_result = HitResult::SlideX;
+					// check adjacent y wall (above)
+					if let raycast::Tile::Wall(_, y_passable) = self.world.y_wall(grid_x + 1, grid_y) {
+						if !y_passable && x1 > x_right - 28 {
+							if y1 < y_top + 28 {
+								if yp < y_top + 27 {
+									y1 = yp;
+									hit_result = HitResult::SlideY;
+								} else {
+									x1 = xp;
+									hit_result = HitResult::SlideX;
+								}
 							}
 						}
 					}
@@ -201,30 +210,34 @@ impl Cluiche {
 
 			// check region C-bottom left area
 			if y1 > y_top + 32 && hit_result == HitResult::Nothing {
-				if x1 < x_left + 32 {
-					let m_code_x = self.world.is_x_wall(grid_x, grid_y + 1); // check adjacent x wall (to left)
-					let m_code_y = self.world.is_y_wall(grid_x - 1, grid_y + 1); // check adjacent y wall (below)
+				if x1 < x_left + 32 {					
 					
-					if m_code_x && y1 > y_bottom - 28 {
-						if x1 < x_left + 28 {
-							if xp > x_left + 27 {
-								x1 = xp;
-								hit_result = HitResult::SlideX;
-							} else {
-								y1 = yp;
-								hit_result = HitResult::SlideY;
+					// check adjacent x wall (to left)
+					if let raycast::Tile::Wall(_, x_passable) = self.world.x_wall(grid_x, grid_y + 1) {
+						if !x_passable && y1 > y_bottom - 28 {
+							if x1 < x_left + 28 {
+								if xp > x_left + 27 {
+									x1 = xp;
+									hit_result = HitResult::SlideX;
+								} else {
+									y1 = yp;
+									hit_result = HitResult::SlideY;
+								}
 							}
 						}
 					}
-
-					if m_code_y && x1 < x_left + 28 {
-						if y1 > y_bottom - 28 {
-							if yp < y_bottom - 27 {
-								y1 = yp;
-								hit_result = HitResult::SlideY;
-							} else {
-								x1 = xp;
-								hit_result = HitResult::SlideX;
+					
+					// check adjacent y wall (below)
+					if let raycast::Tile::Wall(_, y_passable) = self.world.y_wall(grid_x - 1, grid_y + 1) {
+						if !y_passable && x1 < x_left + 28 {
+							if y1 > y_bottom - 28 {
+								if yp < y_bottom - 27 {
+									y1 = yp;
+									hit_result = HitResult::SlideY;
+								} else {
+									x1 = xp;
+									hit_result = HitResult::SlideX;
+								}
 							}
 						}
 					}
@@ -232,29 +245,33 @@ impl Cluiche {
 
 				// check region D-bottom right area
 				if x1 > x_right - 32 && hit_result == HitResult::Nothing {
-					let m_code_x = self.world.is_x_wall(grid_x + 1, grid_y + 1); // check adjacent x wall (to right)
-					let m_code_y = self.world.is_y_wall(grid_x + 1, grid_y + 1); // check adjacent y wall (below)
 					
-					if m_code_x && y1 > y_bottom - 28 {
-						if x1 > x_right - 28 {
-							if xp < x_right - 27 {
-								x1 = xp;
-								hit_result = HitResult::SlideX;
-							} else {
-								y1 = yp;
-								hit_result = HitResult::SlideY;
+					// check adjacent x wall (to right)
+					if let raycast::Tile::Wall(_, x_passable) = self.world.x_wall(grid_x + 1, grid_y + 1) {
+						if !x_passable && y1 > y_bottom - 28 {
+							if x1 > x_right - 28 {
+								if xp < x_right - 27 {
+									x1 = xp;
+									hit_result = HitResult::SlideX;
+								} else {
+									y1 = yp;
+									hit_result = HitResult::SlideY;
+								}
 							}
 						}
 					}
 
-					if m_code_y && x1 > x_right - 28 {
-						if y1 > y_bottom - 28 {
-							if yp < y_bottom - 27 {
-								y1 = yp;
-								hit_result = HitResult::SlideY;
-							} else {
-								x1 = xp;
-								hit_result = HitResult::SlideX;
+					// check adjacent y wall (below)
+					if let raycast::Tile::Wall(_, y_passable) = self.world.y_wall(grid_x + 1, grid_y + 1) {
+						if !y_passable && x1 > x_right - 28 {
+							if y1 > y_bottom - 28 {
+								if yp < y_bottom - 27 {
+									y1 = yp;
+									hit_result = HitResult::SlideY;
+								} else {
+									x1 = xp;
+									hit_result = HitResult::SlideX;
+								}
 							}
 						}
 					}
@@ -299,7 +316,7 @@ impl Cluiche {
 		self.player.rotation(self.player.rotation + self.player.rotate_speed);
 	}
 
-	fn draw_wall_column(&self, buf: &mut[u8], column: i32, slice: raycast::Slice, dist: i32) {
+	fn draw_wall_column(&self, buf: &mut[u8], column: i32, slice: &raycast::Slice, dist: i32) {
 		// get wall texture, draw into column
 		let wall_height: i32 = trig::wall_height(dist);
 
@@ -317,21 +334,15 @@ impl Cluiche {
 				let tex_y = (tex_pos as usize & (consts::TEXTURE_HEIGHT - 1)) * 4;
 				let idx: usize = 4 * (column + y * consts::PROJECTION_PLANE_WIDTH) as usize;
 
-				buf[idx + 0] = texture[tex_y + 0] as u8;
-				buf[idx + 1] = texture[tex_y + 1] as u8;
-				buf[idx + 2] = texture[tex_y + 2] as u8;
-				buf[idx + 3] = texture[tex_y + 3]; // alpha channel
+				if texture[tex_y + 3] > 0 {
+					buf[idx + 0] = texture[tex_y + 0] as u8;
+					buf[idx + 1] = texture[tex_y + 1] as u8;
+					buf[idx + 2] = texture[tex_y + 2] as u8;
+					buf[idx + 3] = texture[tex_y + 3]; // alpha channel
+				}
+				
 				tex_pos += step;
 			}
-
-			// for y in y_min..=y_max {
-			// 	let tex_y = ((y - y_min) as f64 * scale) as usize * 4;
-			// 	let idx: usize = 4 * (column + y * consts::PROJECTION_PLANE_WIDTH) as usize;
-			// 	buf[idx + 0] = texture[tex_y + 0] as u8;
-			// 	buf[idx + 1] = texture[tex_y + 1] as u8;
-			// 	buf[idx + 2] = texture[tex_y + 2] as u8;
-			// 	buf[idx + 3] = texture[tex_y + 3]; // alpha channel
-			// }
 		}
 	}
 
@@ -373,10 +384,11 @@ impl Cluiche {
 		let origin_x = self.player.x.to_fp();
 		let origin_y = self.player.y.to_fp();
 
-
 		// sweep of the rays will be through 60 degrees
 		for sweep in 0..trig::ANGLE_60 {
-			let slice = self.world.find_closest_intersect(origin_x, origin_y, angle);
+			let slices = self.world.find_closest_intersect(origin_x, origin_y, angle);
+			if slices.len() <= 0 { continue; }
+			let slice = &slices[0];
 			let dist = fp::div(slice.distance, trig::fisheye_correction(sweep));
 
 			self.draw_wall_column(buf, sweep, slice, dist.to_i32());

@@ -8,7 +8,7 @@ const cluiche = Cluiche.new();
 cluiche.load_textures(textures);
 
 let canvas   = document.getElementById("canvas");
-let context  = canvas.getContext("2d");
+let context  = canvas.getContext("2d", { willReadFrequently: true });
 let keystate = {}
 
 document.addEventListener('keydown', (event) => { keystate[event.key] = true; }, false);
@@ -66,11 +66,11 @@ function render() {
 }
 
 function events() {
-	if (keystate['w']) {
+	if (keystate['w'] || keystate['ArrowUp']) {
 		cluiche.player_forward();
 	}
 
-	if (keystate['s']) {
+	if (keystate['s'] || keystate['ArrowDown']) {
 		cluiche.player_back();
 	}
 
