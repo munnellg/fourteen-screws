@@ -1,7 +1,7 @@
 use std::fs::File;
 
 fn transform_tile(outbuf: &mut Vec<u8>, imgbuf: &[u8], tile_id: u32, tile_size: u32, img_width: u32) {
-	let y_min = ((tile_id * tile_size) / img_width) as usize;
+	let y_min = (((tile_id * tile_size) / img_width) * tile_size) as usize;
 	let x_min = ((tile_id * tile_size) % img_width) as usize;
 	let y_max = y_min + tile_size as usize;
 	let x_max = x_min + tile_size as usize;

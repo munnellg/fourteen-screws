@@ -15,6 +15,25 @@ macro_rules! log {
 	}
 }
 
+struct ColumnRenderParameters<'a> {
+	pub texture: &'a [u8],
+	pub step: f64,
+	pub wall_height: i32,
+	pub tex_pos: f64,
+	pub y_min: i32,
+	pub y_max: i32,
+}
+
+impl<'a> ColumnRenderParameters<'_> {
+	pub fn new(texture: &'a[u8], step: f64, wall_height: i32, tex_pos:f64, y_min: i32, y_max: i32) -> ColumnRenderParameters {
+		ColumnRenderParameters { texture, step, wall_height, tex_pos, y_min, y_max }
+	}
+
+	pub fn step(&mut self) {
+		self.tex_pos += self.step;
+	}
+}
+
 struct TextureMap {
 	texture_width: usize,
 	texture_height: usize,
@@ -57,11 +76,28 @@ pub struct Cluiche {
 	textures: TextureMap,
 }
 
+fn alpha_blend(c1: f64, a1: f64, c2: f64, a2: f64, ao: f64) -> f64 {
+	(c1 * a1 + c2 * a2 * (1.0 - a1)) / ao
+}
+
+fn blend_colours(r1: u8, g1: u8, b1: u8, a1: u8, r2:u8, g2:u8, b2:u8, a2:u8) -> (u8, u8, u8, u8) {
+	let fa1 = a1 as f64 / 255.0;
+	let fa2 = a2 as f64 / 255.0;
+	let fao = alpha_blend(1.0, fa1, 1.0, fa2, 1.0);
+
+	let r = alpha_blend(r1 as f64, fa1, r2 as f64, fa2, fao) as u8;
+	let g = alpha_blend(g1 as f64, fa1, g2 as f64, fa2, fao) as u8;
+	let b = alpha_blend(b1 as f64, fa1, b2 as f64, fa2, fao) as u8;
+	let a = (255.0 * fao) as u8;
+
+	(r, g, b, a)
+}
+
 #[wasm_bindgen]
 impl Cluiche {
 	pub fn new() -> Cluiche {
-		let world = raycast::World::new(13, 6, "WHHHHWHWHHHHWVOOOOVOVOOOOVVOOOOVOVOOOOVVOOOOVOXOOOOVVOOOOXOVOOOOVWHHHHWHWHHHWW").unwrap();
-		let player = raycast::Player::new(160, 160, 0, 5, 10);
+		let world = raycast::World::new(13, 6, "WHHhHWHWHHHcWvOOOOVOVOOOcVVOOOOvOvOOOcVVOOOOVOXOOOsVVOOOOXOVOOOWVWHHHHWHWHHHWW").unwrap();
+		let player = raycast::Player::new(160, 160, 0, 8, 10);
 		let textures = TextureMap::empty();
 		Cluiche { world, player, textures }
 	}
@@ -93,7 +129,7 @@ impl Cluiche {
 		let grid_y = y_top / consts::TILE_SIZE;
 
 		if x1 < xp { // are we moving left
-			if let raycast::Tile::Wall(texture, passable) = self.world.x_wall(grid_x, grid_y) {
+			if let raycast::Tile::Wall(_, passable) = self.world.x_wall(grid_x, grid_y) {
 				if !passable && (x1 < x_left || (x1 - x_left).abs() < 28) { // we crossed the wall or we're too close
 					x1 = xp;
 					hit_result = HitResult::SlideX;
@@ -102,7 +138,7 @@ impl Cluiche {
 		}
 
 		if x1 > xp { // are we moving right
-			if let raycast::Tile::Wall(texture, passable) = self.world.x_wall(grid_x + 1, grid_y) { // wall found in current square (right edge)
+			if let raycast::Tile::Wall(_, passable) = self.world.x_wall(grid_x + 1, grid_y) { // wall found in current square (right edge)
 				if !passable && (x1 > x_right || (x_right - x1).abs() < 28) { // we crossed the wall or we're too close
 					x1 = xp;
 					hit_result = HitResult::SlideX;
@@ -111,7 +147,7 @@ impl Cluiche {
 		}
 
 		if y1 < yp { // are we moving up			
-			if let raycast::Tile::Wall(texture, passable) = self.world.y_wall(grid_x, grid_y) {
+			if let raycast::Tile::Wall(_, passable) = self.world.y_wall(grid_x, grid_y) {
 				if !passable && (y1 < y_top || (y1 - y_top).abs() < 28) {
 					y1 = yp;
 					hit_result = HitResult::SlideY;
@@ -120,7 +156,7 @@ impl Cluiche {
 		}
 
 		if y1 > yp { // are we moving down
-			if let raycast::Tile::Wall(texture, passable) = self.world.y_wall(grid_x, grid_y + 1) {
+			if let raycast::Tile::Wall(_, passable) = self.world.y_wall(grid_x, grid_y + 1) {
 				if !passable && (y1 > y_bottom || (y_bottom - y1).abs() < 28) {
 					y1 = yp;
 					hit_result = HitResult::SlideY;
@@ -316,33 +352,33 @@ impl Cluiche {
 		self.player.rotation(self.player.rotation + self.player.rotate_speed);
 	}
 
-	fn draw_wall_column(&self, buf: &mut[u8], column: i32, slice: &raycast::Slice, dist: i32) {
-		// get wall texture, draw into column
-		let wall_height: i32 = trig::wall_height(dist);
+	fn draw_wall_column(&self, buf: &mut[u8], column: i32, parameters: &mut Vec<ColumnRenderParameters>) {
+		let y_min = parameters[0].y_min;
+		let y_max = parameters[0].y_max;
 
-		let y_min = std::cmp::max(0, (200 - wall_height) / 2);
-		let y_max = std::cmp::min(200 - 1, y_min + wall_height);
+		for y in y_min..=y_max {
+			let mut r: u8 = 0;
+			let mut g: u8 = 0;
+			let mut b: u8 = 0;
+			let mut a: u8 = 0;
+			
+			let idx: usize = 4 * (column + y * consts::PROJECTION_PLANE_WIDTH) as usize;
 
-		if let raycast::TextureCode::Wall(code, texture_column, flipped) = slice.texture {
-			let texture = self.textures.get(code, texture_column, flipped);
-			let step: f64 = consts::TEXTURE_HEIGHT as f64 / wall_height as f64;
-
-			// Starting texture coordinate
-			let mut tex_pos: f64 = (y_min as f64 - consts::PROJECTION_PLANE_HEIGHT as f64/ 2.0 + wall_height as f64 / 2.0) * step;
-			for y in y_min..=y_max {
-				// Cast the texture coordinate to integer, and mask with (texHeight - 1) in case of overflow
-				let tex_y = (tex_pos as usize & (consts::TEXTURE_HEIGHT - 1)) * 4;
-				let idx: usize = 4 * (column + y * consts::PROJECTION_PLANE_WIDTH) as usize;
-
-				if texture[tex_y + 3] > 0 {
-					buf[idx + 0] = texture[tex_y + 0] as u8;
-					buf[idx + 1] = texture[tex_y + 1] as u8;
-					buf[idx + 2] = texture[tex_y + 2] as u8;
-					buf[idx + 3] = texture[tex_y + 3]; // alpha channel
-				}
+			for slice in parameters.iter_mut() {
+				if y < slice.y_min || y > slice.y_max { break; }
+				let tex_y = (slice.tex_pos.clamp(0.0, 63.0) as usize) * 4;
 				
-				tex_pos += step;
+				(r, g, b, a) = blend_colours(r, g, b, a, slice.texture[tex_y + 0], slice.texture[tex_y + 1], slice.texture[tex_y + 2], slice.texture[tex_y + 3]);
+
+				if a >= 255 { break; }
 			}
+
+			for slice in parameters.iter_mut() {
+				if y < slice.y_min || y > slice.y_max { break; }
+				slice.step();
+			}
+
+			(buf[idx + 0], buf[idx + 1], buf[idx + 2], buf[idx + 3]) = blend_colours(r, g, b, a, buf[idx + 0], buf[idx + 1], buf[idx + 2], buf[idx + 3]);
 		}
 	}
 
@@ -388,10 +424,24 @@ impl Cluiche {
 		for sweep in 0..trig::ANGLE_60 {
 			let slices = self.world.find_closest_intersect(origin_x, origin_y, angle);
 			if slices.len() <= 0 { continue; }
-			let slice = &slices[0];
-			let dist = fp::div(slice.distance, trig::fisheye_correction(sweep));
+			let mut parameters: Vec<ColumnRenderParameters> = Vec::new();
+			parameters.reserve(slices.len());
 
-			self.draw_wall_column(buf, sweep, slice, dist.to_i32());
+			// for each slice, get a reference to its texture and figure out how
+			// it should be drawn
+			for slice in slices {
+				let dist = fp::div(slice.distance, trig::fisheye_correction(sweep)).to_i32();
+				let wall_height: i32 = trig::wall_height(dist);
+				let y_min = std::cmp::max(0, (200 - wall_height) / 2);
+				let y_max = std::cmp::min(200 - 1, y_min + wall_height);
+				let step: f64 = consts::TEXTURE_HEIGHT as f64 / wall_height as f64;
+				let raycast::TextureCode::Wall(code, texture_column, flipped) = slice.texture;
+				let texture = self.textures.get(code, texture_column, flipped);
+				let tex_pos: f64 = (y_min as f64 - consts::PROJECTION_PLANE_HEIGHT as f64 / 2.0 + wall_height as f64 / 2.0) * step;
+				parameters.push(ColumnRenderParameters::new(texture, step, wall_height, tex_pos, y_min, y_max))
+			}
+
+			self.draw_wall_column(buf, sweep, &mut parameters);
 
 			angle += 1;
 			if angle >= trig::ANGLE_360 {

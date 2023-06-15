@@ -72,8 +72,10 @@ impl World {
 
 		let y_walls: Vec<Tile> = map_str.chars()
 			.map(|c| {
-				if c == 'W' || c == 'H' {
+				if c == 'W' || c == 'H' || c == 's' || c == 'c' {
 					Tile::Wall(3, false)
+				} else if c == 'h' { 
+					Tile::Wall(65, false)
 				} else {
 					Tile::Empty
 				}
@@ -86,6 +88,12 @@ impl World {
 					Tile::Wall(3, false)
 				} else if c == 'X' {
 					Tile::Wall(1, true)
+				} else if c == 'v' {
+					Tile::Wall(65, false)
+				} else if c == 's' {
+					Tile::Wall(5, false)
+				} else if c == 'c' {
+					Tile::Wall(4, false)
 				} else {
 					Tile::Empty
 				}
@@ -145,7 +153,7 @@ impl World {
 		while self.is_within_bounds(fp::div(x, consts::FP_TILE_SIZE).to_i32(), fp::div(y, consts::FP_TILE_SIZE).to_i32()) {
 			if let Tile::Wall(texture, _) = self.y_wall(fp::div(x, consts::FP_TILE_SIZE).to_i32(), fp::div(y, consts::FP_TILE_SIZE).to_i32()) {
 				let slice = Slice::new(
-					TextureCode::Wall(texture, x.to_i32() % consts::TILE_SIZE, flipped),
+					TextureCode::Wall(texture, x.to_i32() & (consts::TILE_SIZE - 1), flipped),
 					fp::mul(fp::sub(y, origin_y), trig::isin(direction)).abs(),					
 				);
 				slices.push(slice);
@@ -194,7 +202,7 @@ impl World {
 		while self.is_within_bounds(fp::div(x, consts::FP_TILE_SIZE).to_i32(), fp::div(y, consts::FP_TILE_SIZE).to_i32()) {
 			if let Tile::Wall(texture, _) = self.x_wall(fp::div(x, consts::FP_TILE_SIZE).to_i32(), fp::div(y, consts::FP_TILE_SIZE).to_i32()) {
 				let slice = Slice::new(
-					TextureCode::Wall(texture, y.to_i32() % consts::TILE_SIZE, flipped),
+					TextureCode::Wall(texture, y.to_i32() & (consts::TILE_SIZE - 1), flipped),
 					fp::mul(fp::sub(x, origin_x), trig::icos(direction)).abs()
 				);
 
