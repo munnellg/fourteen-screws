@@ -352,7 +352,7 @@ impl Cluiche {
 		self.player.rotation(self.player.rotation + self.player.rotate_speed);
 	}
 
-	fn draw_wall_column(&self, buf: &mut[u8], column: i32, parameters: &mut Vec<ColumnRenderParameters>) {
+	fn draw_wall_column(&self, buf: &mut[u8], origin_x: i32, origin_y: i32, direction: i32, column: i32, parameters: &mut Vec<ColumnRenderParameters>) {
 		let y_min = parameters[0].y_min;
 		let y_max = parameters[0].y_max;
 
@@ -372,7 +372,39 @@ impl Cluiche {
 				(r, g, b, a) = blend_colours(r, g, b, a, slice.texture[tex_y + 0], slice.texture[tex_y + 1], slice.texture[tex_y + 2], slice.texture[tex_y + 3]);
 			}
 
+			if a < 255 && y >= consts::PROJECTION_PLANE_HORIZON {
+				let floor = self.world.find_floor_intersection(origin_x, origin_y, direction, y, column);
+
+				if let raycast::TextureCode::Floor(code, x, y) = floor {
+					let texture = self.textures.get(code, x, false);
+					let tex_y = (y * 4) as usize;
+					(r, g, b, a) = blend_colours(r, g, b, a, texture[tex_y + 0], texture[tex_y + 1], texture[tex_y + 2], texture[tex_y + 3]);
+				} else {
+					(r, g, b, a) = blend_colours(r, g, b, a, 0x70, 0x70, 0x70, 0xFF);
+				}
+			}
+
 			(buf[idx + 0], buf[idx + 1], buf[idx + 2], buf[idx + 3]) = blend_colours(r, g, b, a, buf[idx + 0], buf[idx + 1], buf[idx + 2], buf[idx + 3]);
+		}
+
+		for y in (y_max + 1)..consts::PROJECTION_PLANE_HEIGHT {
+			let floor = self.world.find_floor_intersection(origin_x, origin_y, direction, y, column);
+			let idx: usize = 4 * (column + y * consts::PROJECTION_PLANE_WIDTH) as usize;
+
+			if let raycast::TextureCode::Floor(code, x, y) = floor {
+				let texture = self.textures.get(code, x, false);
+				let tex_y = (y * 4) as usize;
+
+				buf[idx + 0] = texture[tex_y + 0];
+				buf[idx + 1] = texture[tex_y + 1];
+				buf[idx + 2] = texture[tex_y + 2];
+				buf[idx + 3] = texture[tex_y + 3];
+			} else {
+				buf[idx + 0] = 0x70;
+				buf[idx + 1] = 0x70;
+				buf[idx + 2] = 0x70;
+				buf[idx + 3] = 0xFF;
+			}
 		}
 	}
 
@@ -388,15 +420,15 @@ impl Cluiche {
 			}
 		}
 
-		for y in consts::PROJECTION_PLANE_HEIGHT / 2..consts::PROJECTION_PLANE_HEIGHT {
-			for x in 0..consts::PROJECTION_PLANE_WIDTH {
-				let idx: usize = 4 * (x + y * consts::PROJECTION_PLANE_WIDTH) as usize;
-				buf[idx + 0] = 0x70;
-				buf[idx + 1] = 0x70;
-				buf[idx + 2] = 0x70;
-				buf[idx + 3] = 0xFF; // alpha channel
-			}
-		}
+		// for y in consts::PROJECTION_PLANE_HEIGHT / 2..consts::PROJECTION_PLANE_HEIGHT {
+		// 	for x in 0..consts::PROJECTION_PLANE_WIDTH {
+		// 		let idx: usize = 4 * (x + y * consts::PROJECTION_PLANE_WIDTH) as usize;
+		// 		buf[idx + 0] = 0x70;
+		// 		buf[idx + 1] = 0x70;
+		// 		buf[idx + 2] = 0x70;
+		// 		buf[idx + 3] = 0xFF; // alpha channel
+		// 	}
+		// }
 	}
 
 	pub fn render(&mut self, buf: &mut[u8]) {
@@ -416,7 +448,7 @@ impl Cluiche {
 
 		// sweep of the rays will be through 60 degrees
 		for sweep in 0..trig::ANGLE_60 {
-			let slices = self.world.find_closest_intersect(origin_x, origin_y, angle);
+			let slices = self.world.find_wall_intersections(origin_x, origin_y, angle);
 			if slices.len() <= 0 { continue; }
 			let mut parameters: Vec<ColumnRenderParameters> = Vec::new();
 			parameters.reserve(slices.len());
@@ -429,13 +461,15 @@ impl Cluiche {
 				let y_min = std::cmp::max(0, (200 - wall_height) / 2);
 				let y_max = std::cmp::min(200 - 1, y_min + wall_height);
 				let step: f64 = consts::TEXTURE_HEIGHT as f64 / wall_height as f64;
-				let raycast::TextureCode::Wall(code, texture_column, flipped) = slice.texture;
-				let texture = self.textures.get(code, texture_column, flipped);
-				let tex_pos: f64 = (y_min as f64 - consts::PROJECTION_PLANE_HEIGHT as f64 / 2.0 + wall_height as f64 / 2.0) * step;
-				parameters.push(ColumnRenderParameters::new(texture, step, wall_height, tex_pos, y_min, y_max))
+				
+				if let raycast::TextureCode::Wall(code, texture_column, flipped) = slice.texture {
+					let texture = self.textures.get(code, texture_column, flipped);
+					let tex_pos: f64 = (y_min as f64 - consts::PROJECTION_PLANE_HEIGHT as f64 / 2.0 + wall_height as f64 / 2.0) * step;
+					parameters.push(ColumnRenderParameters::new(texture, step, wall_height, tex_pos, y_min, y_max))	
+				}
 			}
 
-			self.draw_wall_column(buf, sweep, &mut parameters);
+			self.draw_wall_column(buf, origin_x, origin_y, angle, sweep, &mut parameters);
 
 			angle += 1;
 			if angle >= trig::ANGLE_360 {

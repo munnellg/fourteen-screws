@@ -2,6 +2,8 @@ const FP_SHIFT: i32 = 16;
 const FP_MULT: f64  = 65536.0;
 const FP_HALF: f64  = 32768.0;
 
+const FP_FLOOR_MASK: i32 = !((1 << FP_SHIFT) - 1);
+
 pub trait ToFixedPoint {
     fn to_fp(&self) -> i32;
 }
@@ -47,6 +49,10 @@ pub const fn mul(a: i32, b: i32) -> i32 {
 
 pub const fn div(a: i32, b: i32) -> i32 {
 	(((a as i64)  << FP_SHIFT) / b as i64) as i32
+}
+
+pub const fn floor(a: i32) -> i32 {
+	a & FP_FLOOR_MASK
 }
 
 #[cfg(test)]

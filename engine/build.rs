@@ -2,7 +2,10 @@
 use std::f64::consts::PI;
 use std::{env, fs, path::Path};
 
-const PROJECTION_PLANE_WIDTH: usize = 320;
+const PROJECTION_PLANE_WIDTH: usize  = 320;
+const PROJECTION_PLANE_HEIGHT: usize = 200;
+const DISTANCE_TO_PROJECTION_PLANE: usize = 277;
+
 const TILE_SIZE: f64 = 64.0;
 
 const ANGLE_0:   usize = 0;
@@ -17,6 +20,10 @@ const MAX_RAY_LENGTH: usize = 2048;
 const WALL_HEIGHT_SCALE_FACTOR: usize = 18000; 
 const WALL_HEIGHT_MAX: i32            = 640;
 const WALL_HEIGHT_MIN: i32            = 8;
+
+const PLAYER_HEIGHT: usize             = 32;
+const PROJECTION_PLANE_CENTRE_Y: usize = PROJECTION_PLANE_HEIGHT >> 1;
+
 
 fn clamp(x: i32, min: i32, max: i32) -> i32 {
     if x < min {
@@ -142,6 +149,21 @@ fn main() {
     }
 
     output.push_str(stringify("WALL_HEIGHT", &wall_height, MAX_RAY_LENGTH + 1).as_str());
+
+    // let mut FLOOR_TEXTURE_Y_RAYS: [i32; PROJECTION_PLANE_WIDTH * PROJECTION_PLANE_CENTRE_Y] = [0; PROJECTION_PLANE_WIDTH * PROJECTION_PLANE_CENTRE_Y];
+    // let mut FLOOR_TEXTURE_X_RAYS: [i32; PROJECTION_PLANE_WIDTH * PROJECTION_PLANE_CENTRE_Y] = [0; PROJECTION_PLANE_WIDTH * PROJECTION_PLANE_CENTRE_Y];
+
+    // for y in (PROJECTION_PLANE_CENTRE_Y + 1)..PROJECTION_PLANE_HEIGHT {
+    //     let ratio: f64 = PLAYER_HEIGHT as f64 / (y - PROJECTION_PLANE_CENTRE_Y) as f64;
+    //     for sweep in 0..PROJECTION_PLANE_WIDTH {
+    //         let distance = DISTANCE_TO_PROJECTION_PLANE as f64 * ratio * fisheye[sweep];
+    //     }
+    // }
+
+// var diagonalDistance=Math.floor((this.fPlayerDistanceToTheProjectionPlane * ratio) * (this.fFishTable[castColumn]));
+
+// var yEnd = Math.floor(diagonalDistance * this.fSinTable[castArc]);
+// var xEnd = Math.floor(diagonalDistance * this.fCosTable[castArc]);
 
     // write the string to a file. OUT_DIR environment variable is defined by cargo
     let out_dir = env::var("OUT_DIR").unwrap();

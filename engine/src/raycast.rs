@@ -5,7 +5,9 @@ use crate::fp::{ ToFixedPoint, FromFixedPoint };
 
 #[derive(Debug, Copy, Clone)]
 pub enum TextureCode {
-	Wall(u8, i32, bool)
+	None,
+	Wall(u8, i32, bool),
+	Floor(u8, i32, i32),
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -216,7 +218,7 @@ impl World {
 		slices
 	}
 
-	pub fn find_closest_intersect(&self, origin_x: i32, origin_y: i32, direction: i32) -> Vec<Slice> {
+	pub fn find_wall_intersections(&self, origin_x: i32, origin_y: i32, direction: i32) -> Vec<Slice> {
 		let hslices = self.find_horizontal_intersect(origin_x, origin_y, direction);
 		let vslices = self.find_vertical_intersect(origin_x, origin_y, direction);
 		
@@ -248,59 +250,34 @@ impl World {
 
 		slices
 	}
-}
 
-// #[cfg(test)]
-// mod test {
-// 	use super::*;
-// 	use float_cmp;
+	pub fn find_floor_intersection(&self, origin_x: i32, origin_y: i32, direction: i32, row: i32, column: i32) -> TextureCode {
+		// convert to fixed point
+		let player_height = consts::PLAYER_HEIGHT.to_fp(); 
+		let horizon       = consts::PROJECTION_PLANE_HORIZON.to_fp();
+		let pp_distance   = consts::DISTANCE_TO_PROJECTION_PLANE.to_fp();
 
-// 	#[test]
-// 	fn create_new_world() {
-// 		let width: i32 = 3;
-// 		let height: i32 = 3;
-// 		let world_str = "WHWVOVWHW";
-// 		let world = World::new(width, height, world_str).unwrap();
+		// adding 1 to the row exactly on the horizon avoids a division by one error
+		// doubles up the texture at the vanishing point, but probably fine
+		let row = if row == consts::PROJECTION_PLANE_HORIZON { (row + 1).to_fp() } else { row.to_fp() };
 
-// 		assert_eq!(world.width, width);
-// 		assert_eq!(world.height, height);
-// 		assert_eq!(world.y_walls, vec!(
-// 			Tile::Wall,  Tile::Wall,  Tile::Wall,
-// 			Tile::Empty, Tile::Empty, Tile::Empty,
-// 			Tile::Wall,  Tile::Wall,  Tile::Wall
-// 		));
-// 		assert_eq!(world.x_walls, vec!(
-// 			Tile::Wall, Tile::Empty, Tile::Wall,
-// 			Tile::Wall, Tile::Empty, Tile::Wall,
-// 			Tile::Wall, Tile::Empty, Tile::Wall
-// 		));
-// 	}
+		let ratio = fp::div(player_height, fp::sub(row, horizon));
 
-// 	#[test]
-// 	fn cast_ray() {
-// 		let width: i32 = 3;
-// 		let height: i32 = 3;
-// 		let world_str = "WHWVOVWHW";
-// 		let world = World::new(width, height, world_str).unwrap();
+		let diagonal_distance = fp::mul(fp::floor(fp::mul(pp_distance, ratio)), trig::fisheye_correction(column));
 
-// 		assert_eq!(world.find_horizontal_intersect(64.to_fp(), 64.to_fp(), trig::ANGLE_0).to_i32(),   consts::MAX_RAY_LENGTH);
-// 		assert_eq!(world.find_horizontal_intersect(64.to_fp(), 64.to_fp(), trig::ANGLE_90).to_i32(),  64);
-// 		assert_eq!(world.find_horizontal_intersect(64.to_fp(), 64.to_fp(), trig::ANGLE_180).to_i32(), consts::MAX_RAY_LENGTH);
-// 		assert_eq!(world.find_horizontal_intersect(64.to_fp(), 64.to_fp(), trig::ANGLE_270).to_i32(), 64);
+		let x_end = fp::floor(fp::mul(diagonal_distance, trig::cos(direction)));
+		let y_end = fp::floor(fp::mul(diagonal_distance, trig::sin(direction)));
+
+		let x_end = fp::add(origin_x, x_end);
+		let y_end = fp::add(origin_y, y_end);
 		
-// 		assert_eq!(world.find_vertical_intersect(64.to_fp(), 64.to_fp(), trig::ANGLE_0).to_i32(),   64);
-// 		assert_eq!(world.find_vertical_intersect(64.to_fp(), 64.to_fp(), trig::ANGLE_90).to_i32(),  consts::MAX_RAY_LENGTH);
-// 		assert_eq!(world.find_vertical_intersect(64.to_fp(), 64.to_fp(), trig::ANGLE_180).to_i32(), 64);
-// 		assert_eq!(world.find_vertical_intersect(64.to_fp(), 64.to_fp(), trig::ANGLE_270).to_i32(), consts::MAX_RAY_LENGTH);
+		let x = fp::floor(fp::div(x_end, consts::FP_TILE_SIZE)).to_i32();
+		let y = fp::floor(fp::div(y_end, consts::FP_TILE_SIZE)).to_i32();
+		
+		if !self.is_within_bounds(x, y) {
+			return TextureCode::None;
+		}
 
-// 		let world = World::new(7, 7, "WHHHHHWVOOOOOVVOOOOOVVOOOOOVVOOOOOVVOOOOOVWHHHHHW").unwrap();
-// 		assert_eq!(world.find_horizontal_intersect(76.to_fp(), 76.to_fp(), 295).to_i32(), 374);
-// 		assert_eq!(world.find_vertical_intersect(76.to_fp(), 76.to_fp(), 295).to_i32(), consts::MAX_RAY_LENGTH);
-
-// 		assert_eq!(world.find_horizontal_intersect(160.to_fp(), 160.to_fp(), 1730).to_i32(), 274);
-// 		assert_eq!(world.find_vertical_intersect(160.to_fp(), 160.to_fp(), 1730).to_i32(), consts::MAX_RAY_LENGTH);
-
-// 		let world = World::new(13, 6, "WHHHHWHWHHHHWVOOOOVOVOOOOVVOOOOVOVOOOOVVOOOOVOOOOOOVVOOOOOOVOOOOVWHHHHWHWHHHWW").unwrap();
-// 		assert_eq!(world.find_vertical_intersect(698.to_fp(), 145.to_fp(), 820).to_i32(), 278);
-// 	}
-// }
+		TextureCode::Floor(42, x_end.to_i32() & (consts::TILE_SIZE - 1), y_end.to_i32() & (consts::TILE_SIZE - 1))
+	}
+}
