@@ -1,0 +1,3 @@
+[submodule "engine/webapp/vendor/JoyStick"]
+	path = engine/webapp/vendor/JoyStick
+	url = https://github.com/bobboteck/JoyStick.git

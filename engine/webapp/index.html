@@ -21,6 +21,18 @@
       	width: 1280px;
       	aspect-ratio: 8/5;
       }
+
+      @media screen and (max-width : 1920px){
+        #joystick {
+          visibility: hidden;
+        }
+      }
+
+      @media screen and (max-width : 906px){
+        #joystick {
+          visibility: visible;
+        }
+      }
 	</style>
   <!-- Google tag (gtag.js) -->
   <script async src="https://www.googletagmanager.com/gtag/js?id=G-RY4PV833S2"></script>
@@ -37,6 +49,8 @@
     <div id="controls">w, s, a, d = forward, back, strafe left, strafe right | &uarr;, &darr;, &larr;, &rarr; = forward, back, turn left, turn right</div>
     <div id="fps"></div>
     <canvas id="canvas" width="320" height="200"></canvas>
+    <div id="joystick" style="width:200px; height:200px; position:fixed; bottom:0px; left:0px; z-index: 99999"></div>
     <script src="./bootstrap.js"></script>
+    <script src="./vendor/JoyStick/joy.min.js"></script>
   </body>
 </html>

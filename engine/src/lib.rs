@@ -367,15 +367,9 @@ impl Cluiche {
 			for slice in parameters.iter_mut() {
 				if y < slice.y_min || y > slice.y_max { break; }
 				let tex_y = (slice.tex_pos.clamp(0.0, 63.0) as usize) * 4;
-				
-				(r, g, b, a) = blend_colours(r, g, b, a, slice.texture[tex_y + 0], slice.texture[tex_y + 1], slice.texture[tex_y + 2], slice.texture[tex_y + 3]);
-
-				if a >= 255 { break; }
-			}
-
-			for slice in parameters.iter_mut() {
-				if y < slice.y_min || y > slice.y_max { break; }
 				slice.step();
+				if a >= 255 { continue; }
+				(r, g, b, a) = blend_colours(r, g, b, a, slice.texture[tex_y + 0], slice.texture[tex_y + 1], slice.texture[tex_y + 2], slice.texture[tex_y + 3]);
 			}
 
 			(buf[idx + 0], buf[idx + 1], buf[idx + 2], buf[idx + 3]) = blend_colours(r, g, b, a, buf[idx + 0], buf[idx + 1], buf[idx + 2], buf[idx + 3]);

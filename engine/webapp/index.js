@@ -11,8 +11,13 @@ let canvas   = document.getElementById("canvas");
 let context  = canvas.getContext("2d", { willReadFrequently: true });
 let keystate = {}
 
-document.addEventListener('keydown', (event) => { keystate[event.key] = true; }, false);
-document.addEventListener('keyup', (event) => { keystate[event.key] = false; }, false);
+document.addEventListener('keydown', (event) => { keystate[event.code] = true; }, false);
+document.addEventListener('keyup', (event) => { keystate[event.code] = false; }, false);
+
+let joystick = new JoyStick('joystick', { "internalFillColor": "#CCCCCC", "internalStrokeColor": "#333333", "externalStrokeColor": "#333333" }, function(stickData) {
+    keystate["joystick"] = stickData.cardinalDirection;    
+    console.log(keystate["joystick"]);
+});
 
 const fps = new class {
 	constructor() {
@@ -66,27 +71,27 @@ function render() {
 }
 
 function events() {
-	if (keystate['w'] || keystate['ArrowUp']) {
+	if (keystate['KeyW'] || keystate['ArrowUp'] || [ "N", "NW", "NE" ].includes(keystate['joystick'])) {
 		cluiche.player_forward();
 	}
 
-	if (keystate['s'] || keystate['ArrowDown']) {
+	if (keystate['KeyS'] || keystate['ArrowDown'] || [ "S", "SW", "SE" ].includes(keystate['joystick'])) {
 		cluiche.player_back();
 	}
 
-	if (keystate['a']) {
+	if (keystate['KeyA']) {
 		cluiche.player_strafe_left();
 	}
 
-	if (keystate['d']) {
+	if (keystate['KeyD']) {
 		cluiche.player_strafe_right();
 	}
 
-	if (keystate['ArrowLeft']) {
+	if (keystate['ArrowLeft'] || [ "W", "SW", "NW" ].includes(keystate['joystick'])) {
 		cluiche.player_turn_left();
 	}
 
-	if (keystate['ArrowRight']) {
+	if (keystate['ArrowRight'] || [ "E", "SE", "NE" ].includes(keystate['joystick'])) {
 		cluiche.player_turn_right();
 	}
 }
