@@ -8,6 +8,7 @@ pub enum TextureCode {
 	None,
 	Wall(u8, i32, bool),
 	Floor(u8, i32, i32),
+	Ceiling(u8, i32, i32),
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -43,7 +44,7 @@ impl Player {
 	pub fn rotation(&mut self, mut rotation: i32) {
 		// ensure the input rotation is within bounds
 		while rotation >= trig::ANGLE_360 { rotation -= trig::ANGLE_360; }
-		while rotation < trig::ANGLE_0 { rotation += trig::ANGLE_360; }
+		while rotation < trig::ANGLE_0    { rotation += trig::ANGLE_360; }
 		self.rotation = rotation;
 	}
 }
@@ -60,6 +61,8 @@ pub struct World {
 	height: i32,
 	y_walls: Vec<Tile>,
 	x_walls: Vec<Tile>,
+	horizon: i32,
+	fp_horizon: i32,
 }
 
 impl World {
@@ -71,6 +74,9 @@ impl World {
 		if (width * height) as usize != map_str.chars().count() {
 			return Err("Width and height parameters do not match size of serialized map string");
 		}
+
+		let horizon = consts::PROJECTION_PLANE_HORIZON;
+		let fp_horizon = horizon.to_fp();
 
 		let y_walls: Vec<Tile> = map_str.chars()
 			.map(|c| {
@@ -102,7 +108,7 @@ impl World {
 			})
 			.collect();
 
-		Ok(World { width, height, y_walls, x_walls })
+		Ok(World { width, height, y_walls, x_walls, horizon, fp_horizon })
 	}
 
 	fn is_within_bounds(&self, x: i32, y: i32) -> bool {
@@ -117,6 +123,17 @@ impl World {
 	pub fn x_wall(&self, x: i32, y: i32) -> Tile {
 		if !self.is_within_bounds(x, y) { return Tile::OutOfBounds; }
 		self.x_walls[(x + y  * self.width) as usize]
+	}
+
+	pub fn horizon(&self) -> &i32 {
+		&self.horizon
+	}
+
+	pub fn move_horizon(&mut self, step: i32) {
+		self.horizon += step;
+		if self.horizon < 20  { self.horizon =  20; }
+		if self.horizon > 180 { self.horizon = 180; }
+		self.fp_horizon = self.horizon.to_fp();
 	}
 
 	fn find_horizontal_intersect(&self, origin_x: i32, origin_y: i32, direction: i32) -> Vec<Slice> {
@@ -254,14 +271,13 @@ impl World {
 	pub fn find_floor_intersection(&self, origin_x: i32, origin_y: i32, direction: i32, row: i32, column: i32) -> TextureCode {
 		// convert to fixed point
 		let player_height = consts::PLAYER_HEIGHT.to_fp(); 
-		let horizon       = consts::PROJECTION_PLANE_HORIZON.to_fp();
 		let pp_distance   = consts::DISTANCE_TO_PROJECTION_PLANE.to_fp();
 
 		// adding 1 to the row exactly on the horizon avoids a division by one error
 		// doubles up the texture at the vanishing point, but probably fine
-		let row = if row == consts::PROJECTION_PLANE_HORIZON { (row + 1).to_fp() } else { row.to_fp() };
+		let row = if row == self.horizon { (row + 1).to_fp() } else { row.to_fp() };
 
-		let ratio = fp::div(player_height, fp::sub(row, horizon));
+		let ratio = fp::div(player_height, fp::sub(row, self.fp_horizon));
 
 		let diagonal_distance = fp::mul(fp::floor(fp::mul(pp_distance, ratio)), trig::fisheye_correction(column));
 
@@ -279,5 +295,35 @@ impl World {
 		}
 
 		TextureCode::Floor(42, x_end.to_i32() & (consts::TILE_SIZE - 1), y_end.to_i32() & (consts::TILE_SIZE - 1))
+	}
+
+	pub fn find_ceiling_intersection(&self, origin_x: i32, origin_y: i32, direction: i32, row: i32, column: i32) -> TextureCode {
+		// convert to fixed point
+		let player_height = consts::PLAYER_HEIGHT.to_fp(); 
+		let pp_distance   = consts::DISTANCE_TO_PROJECTION_PLANE.to_fp();
+		let wall_height   = consts::WALL_HEIGHT.to_fp();
+
+		// adding 1 to the row exactly on the horizon avoids a division by one error
+		// doubles up the texture at the vanishing point, but probably fine
+		let row = if row == self.horizon { (row + 1).to_fp() } else { row.to_fp() };
+
+		let ratio = fp::div(fp::sub(wall_height, player_height), fp::sub(self.fp_horizon, row));
+
+		let diagonal_distance = fp::mul(fp::floor(fp::mul(pp_distance, ratio)), trig::fisheye_correction(column));
+
+		let x_end = fp::floor(fp::mul(diagonal_distance, trig::cos(direction)));
+		let y_end = fp::floor(fp::mul(diagonal_distance, trig::sin(direction)));
+
+		let x_end = fp::add(origin_x, x_end);
+		let y_end = fp::add(origin_y, y_end);
+		
+		let x = fp::floor(fp::div(x_end, consts::FP_TILE_SIZE)).to_i32();
+		let y = fp::floor(fp::div(y_end, consts::FP_TILE_SIZE)).to_i32();
+		
+		if !self.is_within_bounds(x, y) {
+			return TextureCode::None;
+		}
+
+		TextureCode::Ceiling(23, x_end.to_i32() & (consts::TILE_SIZE - 1), y_end.to_i32() & (consts::TILE_SIZE - 1))
 	}
 }

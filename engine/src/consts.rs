@@ -19,3 +19,4 @@ pub const FP_MAX_RAY_LENGTH: i32 = MAX_RAY_LENGTH << 16;
 
 pub const DISTANCE_TO_PROJECTION_PLANE: i32 = 277;
 pub const PLAYER_HEIGHT: i32 = 32;
+pub const WALL_HEIGHT: i32 = 64;

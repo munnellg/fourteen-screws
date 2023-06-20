@@ -82,11 +82,11 @@ function render() {
 }
 
 function events() {
-	if (keystate['KeyW'] || keystate['ArrowUp'] || [ "N", "NW", "NE" ].includes(keystate['joystick-left'])) {
+	if (keystate['KeyW'] || [ "N", "NW", "NE" ].includes(keystate['joystick-left'])) {
 		cluiche.player_forward();
 	}
 
-	if (keystate['KeyS'] || keystate['ArrowDown'] || [ "S", "SW", "SE" ].includes(keystate['joystick-left'])) {
+	if (keystate['KeyS'] || [ "S", "SW", "SE" ].includes(keystate['joystick-left'])) {
 		cluiche.player_back();
 	}
 
@@ -96,6 +96,14 @@ function events() {
 
 	if (keystate['KeyD'] || [ "E", "SE", "NE" ].includes(keystate['joystick-left'])) {
 		cluiche.player_strafe_right();
+	}
+
+	if (keystate['ArrowUp'] || [ "N", "NW", "NE" ].includes(keystate['joystick-right'])) {
+		cluiche.player_look_up();
+	}
+
+	if (keystate['ArrowDown'] || [ "S", "SW", "SE" ].includes(keystate['joystick-right'])) {
+		cluiche.player_look_down();
 	}
 
 	if (keystate['ArrowLeft'] || [ "W", "SW", "NW" ].includes(keystate['joystick-right'])) {
