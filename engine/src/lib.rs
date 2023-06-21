@@ -8,6 +8,8 @@ mod trig;
 mod utils;
 mod raycast;
 mod fp;
+mod render;
+mod maths;
 
 macro_rules! log {
 	( $( $t:tt )* ) => {
