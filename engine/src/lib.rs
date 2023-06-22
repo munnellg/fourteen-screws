@@ -10,6 +10,7 @@ mod raycast;
 mod fp;
 mod render;
 mod maths;
+mod collision;
 
 macro_rules! log {
 	( $( $t:tt )* ) => {

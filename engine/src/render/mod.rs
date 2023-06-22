@@ -3,31 +3,27 @@ use crate::maths::fp;
 use crate::maths::fp::{ ToFixedPoint, FromFixedPoint };
 use crate::consts;
 
-#[derive(Debug, Copy, Clone)]
-enum TextureCode {
-	None,
-	Wall(u8, i32, bool),
-	Floor(u8, i32, i32),
-	Ceiling(u8, i32, i32),
+struct Tile {
+	texture: TextureId,
 }
 
-#[derive(Debug, Copy, Clone)]
-struct Slice {
-	pub texture: TextureCode,
-	pub distance: i32,
-}
-
-impl Slice {
-	fn new(texture: TextureCode, distance: i32) -> Slice {
-		Slice { texture, distance }
-	}
-}
-
-enum Tile {
+enum RayCastResult {
 	OutOfBounds,
-	Wall(u8, i32),
-	Floor,
-	Ceiling,
+	Surface(Intersection),
+}
+
+struct Intersection {
+	x: i32,
+	y: i32,
+	dist: i32,
+	texture: u8,
+	reverse: bool,
+}
+
+impl Intersection {
+	pub fn new(x: i32, y: i32, dist:i32, texture: u8, reverse: bool) -> Intersection {
+		Intersection { x, y, dist, texture, reverse }
+	}
 }
 
 struct Camera {
@@ -39,27 +35,44 @@ struct Camera {
 
 impl Camera {
 	pub fn new(x: i32, y: i32, angle: i32, horizon: i32) -> Camera {
-		Camera { x: x.to_fp(), y: y.to_fp() , angle, horizon }
+		Camera { x, y, angle, horizon }
 	}
 
 	pub fn default() -> Camera {
 		Camera::new(0, 0, 0, consts::PROJECTION_PLANE_HORIZON)
 	}
 
+	pub fn rotate(&mut self, angle: i32) {
+		self.angle += angle;
+		while self.angle >= trig::ANGLE_360 { self.angle -= trig::ANGLE_360; }
+		while self.angle < trig::ANGLE_0    { self.angle += trig::ANGLE_360; }
+	}
+
+	pub fn pitch(&mut self, distance: i32) {
+		self.horizon += distance;
+		if self.horizon < 20  { self.horizon =  20; }
+		if self.horizon > 180 { self.horizon = 180; }
+	}
+
+	pub fn move_to(&mut self, x: i32, y: i32) {
+		self.set_x(x);
+		self.set_y(y);
+	}
+
 	pub fn x(&self) -> i32 {
-		self.x.to_i32()
+		self.x
 	}
 
 	pub fn set_x(&mut self, x: i32) {
-		self.x = x.to_fp();
+		self.x = x;
 	}
 
 	pub fn y(&self) -> i32 {
-		self.y.to_i32()
+		self.y
 	}
 
 	pub fn set_y(&mut self, y: i32) {
-		self.y = y.to_fp()
+		self.y = y;
 	}
 }
 
@@ -101,6 +114,160 @@ impl Scene {
 	}
 }
 
+struct Colour {
+	r: u8,
+	g: u8,
+	b: u8,
+	a: u8,
+}
+
+impl Colour {
+	pub fn new(r: u8, g: u8, b: u8, a: u8) -> Colour {
+		Colour { r, g, b, a }
+	}
+
+	pub fn blend(self, other: &Colour) -> Colour {
+		let (r, g, b, a) = Colour::blend_colours(self.r, self.g, self.b, self.a, other.r, other.g, other.b, other.a);
+		Colour { r, g, b, a }
+	}
+
+	pub fn tuple(&self) -> (u8, u8, u8, u8) {
+		(self.r, self.g, self.b, self.a)
+	}
+
+	fn alpha_blend(c1: f64, a1: f64, c2: f64, a2: f64, ao: f64) -> f64 {
+		(c1 * a1 + c2 * a2 * (1.0 - a1)) / ao
+	}
+
+	fn blend_colours(r1: u8, g1: u8, b1: u8, a1: u8, r2:u8, g2:u8, b2:u8, a2:u8) -> (u8, u8, u8, u8) {
+		let fa1 = a1 as f64 / 255.0;
+		let fa2 = a2 as f64 / 255.0;
+		let fao = Colour::alpha_blend(1.0, fa1, 1.0, fa2, 1.0);
+
+		let r = Colour::alpha_blend(r1 as f64, fa1, r2 as f64, fa2, fao) as u8;
+		let g = Colour::alpha_blend(g1 as f64, fa1, g2 as f64, fa2, fao) as u8;
+		let b = Colour::alpha_blend(b1 as f64, fa1, b2 as f64, fa2, fao) as u8;
+		let a = (255.0 * fao) as u8;
+
+		(r, g, b, a)
+	}
+}
+
+struct TextureFloorRenderer {
+	default_colour: Colour,
+}
+
+impl TextureFloorRenderer {
+	pub fn new() -> TextureFloorRenderer {
+		TextureFloorRenderer { default_colour: Colour::new(0x70, 0x70, 0x70, 0xFF) }
+	}
+
+	pub fn render(&self, column: i32, y_min: i32, y_max: i32, camera: &Camera, scene: &Scene) {
+		for y in y_min..y_max {
+			let floor = self.find_floor_intersection(y, column, camera, scene);
+			let idx: usize = 4 * (column + y * consts::PROJECTION_PLANE_WIDTH) as usize;
+
+			if let RayCastResult::Surface(intersection) = floor {
+				let texture = self.textures.get(code, x, false);
+				let tex_y = (y * 4) as usize;
+
+				(buf[idx + 0], buf[idx + 1], buf[idx + 2], buf[idx + 3]) = (texture[tex_y + 0], texture[tex_y + 1], texture[tex_y + 2], texture[tex_y + 3]);
+			} else {
+				(buf[idx + 0], buf[idx + 1], buf[idx + 2], buf[idx + 3]) = self.default_colour.tuple();
+			}
+		}
+	}
+
+	fn find_floor_intersection(&self, row: i32, column: i32, camera: &Camera, scene: &Scene) -> RayCastResult {
+		// convert to fixed point
+		let player_height = consts::PLAYER_HEIGHT.to_fp(); 
+		let pp_distance   = consts::DISTANCE_TO_PROJECTION_PLANE.to_fp();
+
+		// adding 1 to the row exactly on the horizon avoids a division by one error
+		// doubles up the texture at the vanishing point, but probably fine
+		let row = if row == camera.horizon { (row + 1).to_fp() } else { row.to_fp() };
+
+		let ratio = fp::div(player_height, fp::sub(row, camera.horizon.to_fp()));
+
+		let diagonal_distance = fp::mul(fp::floor(fp::mul(pp_distance, ratio)), trig::fisheye_correction(column));
+
+		let x_end = fp::floor(fp::mul(diagonal_distance, trig::cos(camera.angle)));
+		let y_end = fp::floor(fp::mul(diagonal_distance, trig::sin(camera.angle)));
+
+		let x_end = fp::add(camera.x(), x_end);
+		let y_end = fp::add(camera.y(), y_end);
+		
+		let x = fp::floor(fp::div(x_end, consts::FP_TILE_SIZE)).to_i32();
+		let y = fp::floor(fp::div(y_end, consts::FP_TILE_SIZE)).to_i32();
+		
+		if !scene.is_within_bounds(x, y) {
+			return RayCastResult::OutOfBounds;
+		}
+
+		let texture_col = x_end.to_i32() & (consts::TILE_SIZE - 1);
+		let texture_row = y_end.to_i32() & (consts::TILE_SIZE - 1);
+
+		let intersection = Intersection::new(texture_col, texture_row, diagonal_distance, 42, false);
+		RayCastResult::Surface(intersection)
+	}
+}
+
+struct TextureCeilingRenderer {
+	default_colour: Colour;
+}
+
+impl TextureCeilingRenderer {
+	pub fn new() -> TextureFloorRenderer {
+		TextureFloorRenderer { Colour::new(0x50, 0x50, 0x50, 0xFF) }
+	}
+
+	pub fn render(&self, column: i32, y_min: i32, y_max: i32, camera: &Camera, scene: &Scene) {
+		for y in y_min..y_max {
+			let ceiling = self.find_ceiling_intersection(y, column, camera, scene);
+			let idx: usize = 4 * (column + y * consts::PROJECTION_PLANE_WIDTH) as usize;
+
+			if let RayCastResult::Surface(intersection) = floor {
+				let texture = self.textures.get(code, x, false);
+				let tex_y = (y * 4) as usize;
+
+				(buf[idx + 0], buf[idx + 1], buf[idx + 2], buf[idx + 3]) = (texture[tex_y + 0], texture[tex_y + 1], texture[tex_y + 2], texture[tex_y + 3]);
+			} else {
+				(buf[idx + 0], buf[idx + 1], buf[idx + 2], buf[idx + 3]) = self.default_colour.tuple();
+			}
+		}
+	}
+
+	pub fn find_ceiling_intersection(&self, origin_x: i32, origin_y: i32, direction: i32, row: i32, column: i32) -> TextureCode {
+		// convert to fixed point
+		let player_height = consts::PLAYER_HEIGHT.to_fp(); 
+		let pp_distance   = consts::DISTANCE_TO_PROJECTION_PLANE.to_fp();
+		let wall_height   = consts::WALL_HEIGHT.to_fp();
+
+		// adding 1 to the row exactly on the horizon avoids a division by one error
+		// doubles up the texture at the vanishing point, but probably fine
+		let row = if row == self.horizon { (row + 1).to_fp() } else { row.to_fp() };
+
+		let ratio = fp::div(fp::sub(wall_height, player_height), fp::sub(self.fp_horizon, row));
+
+		let diagonal_distance = fp::mul(fp::floor(fp::mul(pp_distance, ratio)), trig::fisheye_correction(column));
+
+		let x_end = fp::floor(fp::mul(diagonal_distance, trig::cos(direction)));
+		let y_end = fp::floor(fp::mul(diagonal_distance, trig::sin(direction)));
+
+		let x_end = fp::add(origin_x, x_end);
+		let y_end = fp::add(origin_y, y_end);
+		
+		let x = fp::floor(fp::div(x_end, consts::FP_TILE_SIZE)).to_i32();
+		let y = fp::floor(fp::div(y_end, consts::FP_TILE_SIZE)).to_i32();
+		
+		if !self.is_within_bounds(x, y) {
+			return TextureCode::None;
+		}
+
+		TextureCode::Ceiling(23, x_end.to_i32() & (consts::TILE_SIZE - 1), y_end.to_i32() & (consts::TILE_SIZE - 1))
+	}
+}
+
 struct RenderConfig {
 
 }
@@ -115,17 +282,79 @@ impl RenderConfig {
 	}
 }
 
-struct Renderer {
-
+struct RaycastRenderer {
+	floor_renderer: TextureFloorRenderer
 }
 
-impl Renderer {
-	pub fn new(config: &RenderConfig) -> Renderer {
-		Renderer {}
+impl RaycastRenderer {
+	pub fn new(config: &RenderConfig) -> RaycastRenderer {
+		Renderer { floor_renderer : TextureFloorRenderer::new() }
 	}
 
-	fn draw_to_buffer(&self, buf: &mut[u8]) {
+	fn draw_wall_column(&self, buf: &mut[u8], origin_x: i32, origin_y: i32, direction: i32, column: i32, parameters: &mut Vec<ColumnRenderParameters>) {
+		let y_min = parameters[0].y_min;
+		let y_max = parameters[0].y_max;
 
+		for y in y_min..=y_max {
+			let mut r: u8 = 0;
+			let mut g: u8 = 0;
+			let mut b: u8 = 0;
+			let mut a: u8 = 0;
+			
+			let idx: usize = 4 * (column + y * consts::PROJECTION_PLANE_WIDTH) as usize;
+
+			for slice in parameters.iter_mut() {
+				if y < slice.y_min || y > slice.y_max { break; }
+				let tex_y = (slice.tex_pos.clamp(0.0, 63.0) as usize) * 4;
+				slice.step();
+				if a >= 255 { continue; }
+				(r, g, b, a) = blend_colours(r, g, b, a, slice.texture[tex_y + 0], slice.texture[tex_y + 1], slice.texture[tex_y + 2], slice.texture[tex_y + 3]);
+			}
+
+			if a < 255 {
+				if y >= *self.world.horizon() {
+					let floor = self.world.find_floor_intersection(origin_x, origin_y, direction, y, column);
+
+					if let raycast::TextureCode::Floor(code, x, y) = floor {
+						let texture = self.textures.get(code, x, false);
+						let tex_y = (y * 4) as usize;
+						(r, g, b, a) = blend_colours(r, g, b, a, texture[tex_y + 0], texture[tex_y + 1], texture[tex_y + 2], texture[tex_y + 3]);
+					} else {
+						(r, g, b, a) = blend_colours(r, g, b, a, 0x70, 0x70, 0x70, 0xFF);
+					}
+				} else {
+					let ceiling = self.world.find_ceiling_intersection(origin_x, origin_y, direction, y, column);
+
+					if let raycast::TextureCode::Ceiling(code, x, y) = ceiling {
+						let texture = self.textures.get(code, x, false);
+						let tex_y = (y * 4) as usize;
+						(r, g, b, a) = blend_colours(r, g, b, a, texture[tex_y + 0], texture[tex_y + 1], texture[tex_y + 2], texture[tex_y + 3]);
+					} else {
+						(r, g, b, a) = blend_colours(r, g, b, a, 0x70, 0x70, 0x70, 0xFF);
+					}
+				}
+			}
+
+			(buf[idx + 0], buf[idx + 1], buf[idx + 2], buf[idx + 3]) = blend_colours(r, g, b, a, buf[idx + 0], buf[idx + 1], buf[idx + 2], buf[idx + 3]);
+		}
+
+		// texture the ceiling
+		for y in 0..(y_min) {
+			let ceiling = self.world.find_ceiling_intersection(origin_x, origin_y, direction, y, column);
+			let idx: usize = 4 * (column + y * consts::PROJECTION_PLANE_WIDTH) as usize;
+
+			if let raycast::TextureCode::Ceiling(code, x, y) = ceiling {
+				let texture = self.textures.get(code, x, false);
+				let tex_y = (y * 4) as usize;
+
+				(buf[idx + 0], buf[idx + 1], buf[idx + 2], buf[idx + 3]) = (texture[tex_y + 0], texture[tex_y + 1], texture[tex_y + 2], texture[tex_y + 3]);
+			} else {
+				(buf[idx + 0], buf[idx + 1], buf[idx + 2], buf[idx + 3]) = (0x70, 0x70, 0x70, 0xFF);
+			}
+		}
+
+		// texture the floor
+		self.floor_renderer.render(buf, column, y_max + 1, consts::PROJECTION_PLANE_HEIGHT, camera, scene);
 	}
 
 	pub fn render(&self, buf: &mut[u8], scene: &Scene, camera: &Camera) {
@@ -174,7 +403,7 @@ impl Renderer {
 		}
 	}
 
-	fn find_horizontal_intersect(&self, origin_x: i32, origin_y: i32, direction: i32, scene: &Scene) -> Vec<Slice> {
+	fn find_horizontal_intersect(&self, origin_x: i32, origin_y: i32, direction: i32, scene: &Scene) -> Vec<Intersection> {
 		let step_x: i32; // distance to next vertical intersect
 		let step_y: i32; // distance to next horizontal intersect
 		let mut x: i32;  // x coordinate of current ray intersect
@@ -202,7 +431,6 @@ impl Renderer {
 
 		if direction == trig::ANGLE_0 || direction == trig::ANGLE_180 {
 			return slices;
-			// return Slice::new(TextureCode::None, consts::FP_MAX_RAY_LENGTH);
 		}
 
 		// Cast x axis intersect rays, build up xSlice
@@ -223,7 +451,7 @@ impl Renderer {
 		slices
 	}
 
-	fn find_vertical_intersect(&self, origin_x: i32, origin_y: i32, direction: i32, scene: &Scene) -> Vec<Slice> {
+	fn find_vertical_intersect(&self, origin_x: i32, origin_y: i32, direction: i32, scene: &Scene) -> Vec<Intersection> {
 		let step_x: i32; // distance to next vertical intersect
 		let step_y: i32; // distance to next horizontal intersect
 		let mut x: i32;  // x coordinate of current ray intersect
@@ -304,5 +532,35 @@ impl Renderer {
 		}
 
 		slices
+	}
+
+	pub fn find_ceiling_intersection(&self, origin_x: i32, origin_y: i32, direction: i32, row: i32, column: i32) -> TextureCode {
+		// convert to fixed point
+		let player_height = consts::PLAYER_HEIGHT.to_fp(); 
+		let pp_distance   = consts::DISTANCE_TO_PROJECTION_PLANE.to_fp();
+		let wall_height   = consts::WALL_HEIGHT.to_fp();
+
+		// adding 1 to the row exactly on the horizon avoids a division by one error
+		// doubles up the texture at the vanishing point, but probably fine
+		let row = if row == self.horizon { (row + 1).to_fp() } else { row.to_fp() };
+
+		let ratio = fp::div(fp::sub(wall_height, player_height), fp::sub(self.fp_horizon, row));
+
+		let diagonal_distance = fp::mul(fp::floor(fp::mul(pp_distance, ratio)), trig::fisheye_correction(column));
+
+		let x_end = fp::floor(fp::mul(diagonal_distance, trig::cos(direction)));
+		let y_end = fp::floor(fp::mul(diagonal_distance, trig::sin(direction)));
+
+		let x_end = fp::add(origin_x, x_end);
+		let y_end = fp::add(origin_y, y_end);
+		
+		let x = fp::floor(fp::div(x_end, consts::FP_TILE_SIZE)).to_i32();
+		let y = fp::floor(fp::div(y_end, consts::FP_TILE_SIZE)).to_i32();
+		
+		if !self.is_within_bounds(x, y) {
+			return TextureCode::None;
+		}
+
+		TextureCode::Ceiling(23, x_end.to_i32() & (consts::TILE_SIZE - 1), y_end.to_i32() & (consts::TILE_SIZE - 1))
 	}
 }
