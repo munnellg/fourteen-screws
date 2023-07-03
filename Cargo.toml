@@ -3,4 +3,5 @@
 members = [
 	"engine",
 	"img2tex",
+	"demo",
 ]

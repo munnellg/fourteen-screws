@@ -1,5 +1,3 @@
-use crate::fp::ToFixedPoint;
-
 pub const PROJECTION_PLANE_HEIGHT: i32  = 200;
 pub const PROJECTION_PLANE_WIDTH: i32   = 320;
 pub const PROJECTION_PLANE_HORIZON: i32 = PROJECTION_PLANE_HEIGHT / 2;

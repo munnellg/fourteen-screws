@@ -1,9 +1,7 @@
 [package]
-name = "fourteen-screws"
+name = "demo"
 version = "0.1.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -19,6 +17,6 @@ wasm-bindgen-test = "0.2"
 float-cmp = "0.9.0"
 
 [dependencies]
-base64 = "0.21.2"
-serde_json = "1.0.99"
 wasm-bindgen = "0.2.86"
+fourteen-screws = { path = "../engine" }
+serde_json = "1.0.99"
