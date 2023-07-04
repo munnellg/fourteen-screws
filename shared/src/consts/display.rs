@@ -1,0 +1,7 @@
+pub const PROJECTION_PLANE_HEIGHT: i32      = 200;
+pub const PROJECTION_PLANE_WIDTH: i32       = 320;
+pub const PROJECTION_PLANE_HORIZON: i32     = PROJECTION_PLANE_HEIGHT / 2;
+pub const DISTANCE_TO_PROJECTION_PLANE: i32 = 277;
+
+pub const TILE_SIZE: i32    = 64;
+pub const FP_TILE_SIZE: i32 = TILE_SIZE << 16;

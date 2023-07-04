@@ -1,8 +1,9 @@
-use crate::maths::trig;
-// use crate::maths::fp;
-// use crate::maths::fp::{ ToFixedPoint, FromFixedPoint };
-use crate::consts;
+use crate::scene::Scene;
+use crate::trig;
 use serde_json;
+use shared::consts;
+use shared::fp;
+use shared::fp::{ ToFixedPoint, FromFixedPoint };
 
 enum RayCastResult {
 	OutOfBounds,
@@ -72,12 +73,72 @@ impl Camera {
 		self.y = y;
 	}
 
+	pub fn angle(&self) -> i32 {
+		self.angle
+	}
+
 	pub fn from_json(json: &serde_json::Value) -> Result<Camera, &'static str> {
 		let x = json["x"].as_i64().unwrap() as i32;
 		let y = json["y"].as_i64().unwrap() as i32;
 		let a = json["angle"].as_i64().unwrap() as i32;
 		let h = json["horizon"].as_i64().unwrap() as i32;
 		Ok(Camera::new(x, y, a, h))
+	}
+}
+
+pub struct Renderer {
+	
+}
+
+impl Renderer {
+	pub fn render(&self, buf: &mut[u8], scene: &Scene, camera: &Camera) {
+		// angle is the direction camera is facing
+		// need to start out sweep 30 degrees to the left
+		let mut angle = if camera.angle() < trig::ANGLE_30 {
+			camera.angle() - trig::ANGLE_30 + trig::ANGLE_360
+		} else {
+			camera.angle() - trig::ANGLE_30
+		};
+
+		// ray casting uses fixed point notation, so convert camera coordinates to fixed point
+		let origin_x = camera.x().to_fp();
+		let origin_y = camera.y().to_fp();
+
+		// sweep of the rays will be through 60 degrees
+		for sweep in 0..trig::ANGLE_60 {
+			println!("{}", trig::fisheye_correction(sweep));
+		// 	let slices = self.world.find_wall_intersections(origin_x, origin_y, angle);
+		// 	if slices.len() <= 0 { continue; }
+		// 	let mut parameters: Vec<ColumnRenderParameters> = Vec::new();
+		// 	parameters.reserve(slices.len());
+
+		// 	// for each slice, get a reference to its texture and figure out how
+		// 	// it should be drawn
+		// 	for slice in slices {
+		// 		let dist = fp::div(slice.distance, fisheye_correction!(sweep)).to_i32();
+		// 		let wall_height: i32 = trig::wall_height!(dist);
+		// 		let y_min = std::cmp::max(0, self.world.horizon() - wall_height / 2);
+		// 		let y_max = std::cmp::min(consts::PROJECTION_PLANE_HEIGHT - 1, self.world.horizon() + wall_height / 2);
+		// 		let step: f64 = consts::TEXTURE_HEIGHT as f64 / wall_height as f64;
+				
+		// 		if let raycast::TextureCode::Wall(code, texture_column, flipped) = slice.texture {
+		// 			let texture = self.textures.get(code, texture_column, flipped);
+		// 			let tex_pos: f64 = (y_min as f64 - *self.world.horizon() as f64 + wall_height as f64 / 2.0) * step;
+		// 			parameters.push(ColumnRenderParameters::new(texture, step, wall_height, tex_pos, y_min, y_max))	
+		// 		}
+		// 	}
+
+		// 	self.draw_wall_column(buf, origin_x, origin_y, angle, sweep, &mut parameters);
+
+			angle += 1;
+			if angle >= trig::ANGLE_360 {
+				angle -= trig::ANGLE_360;
+			}
+		}
+	}
+
+	pub fn from_json(json: &serde_json::Value) -> Result<Renderer, &'static str> {
+		Ok(Renderer {})
 	}
 }
 

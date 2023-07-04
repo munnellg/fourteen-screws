@@ -1,6 +1,5 @@
 const FP_SHIFT: i32 = 16;
 const FP_MULT: f64  = 65536.0;
-const FP_HALF: f64  = 32768.0;
 
 const FP_FLOOR_MASK: i32 = !((1 << FP_SHIFT) - 1);
 

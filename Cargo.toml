@@ -1,7 +1,9 @@
 [workspace]
 
 members = [
+	"shared",
+	"macros",
 	"engine",
-	"img2tex",
 	"demo",
+	"tools/img2tex",
 ]
