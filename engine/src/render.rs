@@ -1,25 +1,59 @@
-use crate::scene::Scene;
+use crate::scene::{ Tile, Scene };
 use crate::trig;
 use serde_json;
 use shared::consts;
 use shared::fp;
 use shared::fp::{ ToFixedPoint, FromFixedPoint };
 
-enum RayCastResult {
-	OutOfBounds,
-	Surface(Intersection),
+struct Colour {
+	r: u8,
+	g: u8,
+	b: u8,
+	a: u8,
+}
+
+impl Colour {
+	pub fn new(r: u8, g: u8, b: u8, a: u8) -> Colour {
+		Colour { r, g, b, a }
+	}
+
+	pub fn blend(self, other: &Colour) -> Colour {
+		let (r, g, b, a) = Colour::blend_colours(self.r, self.g, self.b, self.a, other.r, other.g, other.b, other.a);
+		Colour { r, g, b, a }
+	}
+
+	pub fn tuple(&self) -> (u8, u8, u8, u8) {
+		(self.r, self.g, self.b, self.a)
+	}
+
+	fn alpha_blend(c1: f64, a1: f64, c2: f64, a2: f64, ao: f64) -> f64 {
+		(c1 * a1 + c2 * a2 * (1.0 - a1)) / ao
+	}
+
+	fn blend_colours(r1: u8, g1: u8, b1: u8, a1: u8, r2:u8, g2:u8, b2:u8, a2:u8) -> (u8, u8, u8, u8) {
+		let fa1 = a1 as f64 / 255.0;
+		let fa2 = a2 as f64 / 255.0;
+		let fao = Colour::alpha_blend(1.0, fa1, 1.0, fa2, 1.0);
+
+		let r = Colour::alpha_blend(r1 as f64, fa1, r2 as f64, fa2, fao) as u8;
+		let g = Colour::alpha_blend(g1 as f64, fa1, g2 as f64, fa2, fao) as u8;
+		let b = Colour::alpha_blend(b1 as f64, fa1, b2 as f64, fa2, fao) as u8;
+		let a = (255.0 * fao) as u8;
+
+		(r, g, b, a)
+	}
 }
 
 struct Intersection {
 	x: i32,
 	y: i32,
 	dist: i32,
-	texture: u8,
+	texture: u32,
 	reverse: bool,
 }
 
 impl Intersection {
-	pub fn new(x: i32, y: i32, dist:i32, texture: u8, reverse: bool) -> Intersection {
+	pub fn new(x: i32, y: i32, dist:i32, texture: u32, reverse: bool) -> Intersection {
 		Intersection { x, y, dist, texture, reverse }
 	}
 }
@@ -77,6 +111,10 @@ impl Camera {
 		self.angle
 	}
 
+	pub fn horizon(&self) -> i32 {
+		self.horizon
+	}
+
 	pub fn from_json(json: &serde_json::Value) -> Result<Camera, &'static str> {
 		let x = json["x"].as_i64().unwrap() as i32;
 		let y = json["y"].as_i64().unwrap() as i32;
@@ -86,11 +124,230 @@ impl Camera {
 	}
 }
 
+struct RayCaster {}
+
+impl RayCaster {
+	fn new() -> RayCaster {
+		RayCaster {}
+	}
+	fn find_horizontal_intersect(&self, origin_x: i32, origin_y: i32, direction: i32, scene: &Scene) -> Vec<Intersection> {
+		let step_x: i32; // distance to next vertical intersect
+		let step_y: i32; // distance to next horizontal intersect
+		let mut x: i32;  // x coordinate of current ray intersect
+		let mut y: i32;  // y coordinate of current ray intersect
+		let flipped: bool;
+
+		let mut intersects = Vec::new();
+
+		// determine if looking up or down and find horizontal intersection
+		if direction > trig::ANGLE_0 && direction < trig::ANGLE_180 { // looking down
+			step_x = trig::x_step(direction);
+			step_y = consts::FP_TILE_SIZE;
+
+			y = ((origin_y.to_i32() / consts::TILE_SIZE) * consts::TILE_SIZE + consts::TILE_SIZE).to_fp();
+			x = fp::add(origin_x, fp::mul(fp::sub(y, origin_y), trig::itan(direction)));
+			flipped = true;
+		} else {                     // looking up
+			step_x = trig::x_step(direction);
+			step_y = -consts::FP_TILE_SIZE;
+
+			y = ((origin_y.to_i32() / consts::TILE_SIZE) * consts::TILE_SIZE).to_fp();
+			x = fp::add(origin_x, fp::mul(fp::sub(y, origin_y), trig::itan(direction)));
+			flipped = false;
+		}
+
+		if direction == trig::ANGLE_0 || direction == trig::ANGLE_180 {
+			return intersects;
+		}
+
+		// Cast x axis intersect rays, build up horizontal intersections
+		loop {
+			let grid_x = fp::div(x, consts::FP_TILE_SIZE).to_i32();
+			let grid_y = fp::div(y, consts::FP_TILE_SIZE).to_i32();
+			
+			match scene.y_wall(grid_x, grid_y) {
+				Tile::Wall(wall) => {
+					let world_x  = x.to_i32() & (consts::TILE_SIZE - 1);
+					let world_y  = y.to_i32() & (consts::TILE_SIZE - 1);
+					let distance = fp::mul(fp::sub(y, origin_y), trig::isin(direction)).abs();
+					let texture  = wall.texture;
+					let intersection = Intersection::new(world_x, world_y, distance, texture, flipped);
+					intersects.push(intersection);
+				},
+				Tile::OutOfBounds => break,
+				Tile::Empty => {}
+			}
+
+			x = fp::add(x, step_x);
+			y = fp::add(y, step_y);
+		}
+
+
+		intersects
+	}
+
+	fn find_vertical_intersect(&self, origin_x: i32, origin_y: i32, direction: i32, scene: &Scene) -> Vec<Intersection> {
+		let step_x: i32; // distance to next vertical intersect
+		let step_y: i32; // distance to next horizontal intersect
+		let mut x: i32;  // x coordinate of current ray intersect
+		let mut y: i32;  // y coordinate of current ray intersect
+		let flipped: bool;
+
+		let mut intersects = Vec::new();
+
+		// determine if looking left or right and find vertical intersection
+		if direction <= trig::ANGLE_90 || direction > trig::ANGLE_270 { // looking right
+			step_x = consts::FP_TILE_SIZE;
+			step_y = trig::y_step(direction);
+			
+			x = ((origin_x.to_i32() / consts::TILE_SIZE) * consts::TILE_SIZE + consts::TILE_SIZE).to_fp();
+			y = fp::add(origin_y, fp::mul(fp::sub(x, origin_x), trig::tan(direction)));
+			
+			flipped = false;
+		} else {
+			step_x = -consts::FP_TILE_SIZE;
+			step_y = trig::y_step(direction);
+			
+			x = (((origin_x.to_i32() / consts::TILE_SIZE) * consts::TILE_SIZE)).to_fp();
+			y = fp::add(origin_y, fp::mul(fp::sub(x, origin_x), trig::tan(direction)));
+			
+			flipped = true;
+		};
+
+		if direction == trig::ANGLE_90 || direction == trig::ANGLE_270 {
+			return intersects;
+		}
+
+		loop {
+			let grid_x = fp::div(x, consts::FP_TILE_SIZE).to_i32();
+			let grid_y = fp::div(y, consts::FP_TILE_SIZE).to_i32();
+			
+			match scene.y_wall(grid_x, grid_y) {
+				Tile::Wall(wall) => {
+					let world_x  = x.to_i32() & (consts::TILE_SIZE - 1);
+					let world_y  = y.to_i32() & (consts::TILE_SIZE - 1);
+					let distance = fp::mul(fp::sub(x, origin_x), trig::icos(direction)).abs();
+					let texture  = wall.texture;
+					let intersection = Intersection::new(world_x, world_y, distance, texture, flipped);
+					intersects.push(intersection);
+				},
+				Tile::OutOfBounds => break,
+				Tile::Empty => {}
+			}
+
+			x = fp::add(x, step_x);
+			y = fp::add(y, step_y);
+		}
+
+		intersects
+	}
+
+	fn find_wall_intersections(&self, origin_x: i32, origin_y: i32, direction: i32, scene: &Scene) -> Vec<Intersection> {
+		let hintersects = self.find_horizontal_intersect(origin_x, origin_y, direction, scene);
+		let vintersects = self.find_vertical_intersect(origin_x, origin_y, direction, scene);
+
+		let mut intersects = Vec::new();
+		intersects.reserve(hintersects.len() + vintersects.len());
+
+		let mut i = 0;
+		let mut j = 0;
+
+		while i < hintersects.len() && j < vintersects.len() {
+			if hintersects[i].dist < vintersects[j].dist {
+				intersects.push(hintersects[i]);
+				i += 1;
+			} else {
+				intersects.push(vintersects[j]);
+				j += 1;
+			}
+		}
+
+		while i < hintersects.len() {			
+			intersects.push(hintersects[i]);
+			i += 1;
+		}
+
+		while j < vintersects.len() {
+			intersects.push(vintersects[j]);
+			j += 1;
+		}
+
+		intersects
+	}
+}
+
+struct TextureMap {
+	texture_width: usize,
+	texture_height: usize,
+	texture_size: usize,
+	num_textures: usize,
+	textures: Vec<u8>
+}
+
+impl TextureMap {
+	pub fn new(texture_width: usize, texture_height: usize, textures: Vec<u8>) -> TextureMap {
+		let texture_size = texture_width * texture_height;
+		let num_textures = textures.len() / (texture_size * 4);
+		TextureMap { texture_width, texture_height, texture_size, num_textures, textures }
+	}
+
+	pub fn empty() -> TextureMap {
+		TextureMap { texture_width: 0, texture_height: 0, texture_size: 0, num_textures: 0, textures: vec![] }
+	}
+
+	pub fn get(&self, code: u32, column: i32, flipped: bool) -> &[u8] {
+		let column = if flipped { self.texture_width - 1 - column as usize } else { column as usize };
+		let pos: usize = (self.texture_size * code as usize + column as usize * self.texture_width) * 4 as usize;
+		&self.textures[pos..pos + self.texture_size]
+	}
+}
+
+struct RenderParameters<'a> {
+	texture: &'a [u8],
+	step: f64,
+	wall_height: i32,
+	tex_pos: f64,
+	y_min: i32,
+	y_max: i32,
+}
+
+impl RenderParameters<'_> {
+	pub fn new(texture: &[u8], step: f64, wall_height: i32, tex_pos: f64, y_min: i32, y_max: i32,) -> RenderParameters {
+		RenderParameters { texture, step, wall_height, tex_pos, y_min, y_max }
+	}
+}
+
 pub struct Renderer {
-	
+	raycaster: RayCaster,
+	textures: TextureMap,
 }
 
 impl Renderer {
+	pub fn new(raycaster: RayCaster, textures: TextureMap) -> Renderer {
+		Renderer{ raycaster, textures }
+	}
+
+	pub fn render_column(&self, buf: &mut[u8], column: i32, parameters: &Vec<RenderParameters>) {
+		let y_min = parameters[0].y_min;
+		let y_max = parameters[0].y_max;
+
+		for y in y_min..=y_max {
+			let pixel = Colour::new(r, g, b, a);
+			
+			let idx: usize = 4 * (column + y * consts::PROJECTION_PLANE_WIDTH) as usize;
+
+			for intersect in parameters.iter_mut() {
+				if y < intersect.y_min || y > intersect.y_max { break; }
+				let tex_y = (intersect.tex_pos.clamp(0.0, 63.0) as usize) * 4;
+				intersect.step();
+				if a >= 255 { continue; }
+				(r, g, b, a) = blend_colours(r, g, b, a, intersect.texture[tex_y + 0], intersect.texture[tex_y + 1], intersect.texture[tex_y + 2], intersect.texture[tex_y + 3]);
+			}
+
+			(buf[idx + 0], buf[idx + 1], buf[idx + 2], buf[idx + 3]) = blend_colours(r, g, b, a, buf[idx + 0], buf[idx + 1], buf[idx + 2], buf[idx + 3]);
+		}
+	}
+
 	pub fn render(&self, buf: &mut[u8], scene: &Scene, camera: &Camera) {
 		// angle is the direction camera is facing
 		// need to start out sweep 30 degrees to the left
@@ -106,29 +363,25 @@ impl Renderer {
 
 		// sweep of the rays will be through 60 degrees
 		for sweep in 0..trig::ANGLE_60 {
-			println!("{}", trig::fisheye_correction(sweep));
-		// 	let slices = self.world.find_wall_intersections(origin_x, origin_y, angle);
-		// 	if slices.len() <= 0 { continue; }
-		// 	let mut parameters: Vec<ColumnRenderParameters> = Vec::new();
-		// 	parameters.reserve(slices.len());
+			let intersects = self.raycaster.find_wall_intersections(origin_x, origin_y, angle, scene);
+			if intersects.len() <= 0 { continue; }
+			let mut parameters: Vec<RenderParameters> = Vec::new();
+			parameters.reserve(intersects.len());
 
-		// 	// for each slice, get a reference to its texture and figure out how
-		// 	// it should be drawn
-		// 	for slice in slices {
-		// 		let dist = fp::div(slice.distance, fisheye_correction!(sweep)).to_i32();
-		// 		let wall_height: i32 = trig::wall_height!(dist);
-		// 		let y_min = std::cmp::max(0, self.world.horizon() - wall_height / 2);
-		// 		let y_max = std::cmp::min(consts::PROJECTION_PLANE_HEIGHT - 1, self.world.horizon() + wall_height / 2);
-		// 		let step: f64 = consts::TEXTURE_HEIGHT as f64 / wall_height as f64;
-				
-		// 		if let raycast::TextureCode::Wall(code, texture_column, flipped) = slice.texture {
-		// 			let texture = self.textures.get(code, texture_column, flipped);
-		// 			let tex_pos: f64 = (y_min as f64 - *self.world.horizon() as f64 + wall_height as f64 / 2.0) * step;
-		// 			parameters.push(ColumnRenderParameters::new(texture, step, wall_height, tex_pos, y_min, y_max))	
-		// 		}
-		// 	}
+			// for each slice, get a reference to its texture and figure out how
+			// it should be drawn
+			let parameters = intersects.iter().map(|intersect| {
+				let dist = fp::div(intersect.dist, trig::fisheye_correction(sweep)).to_i32();
+				let wall_height: i32 = trig::wall_height(dist);
+				let y_min = std::cmp::max(0, camera.horizon() - wall_height / 2);
+				let y_max = std::cmp::min(consts::PROJECTION_PLANE_HEIGHT - 1, camera.horizon() + wall_height / 2);
+				let step: f64 = consts::TEXTURE_HEIGHT as f64 / wall_height as f64;
+				let texture = self.textures.get(intersect.texture, 0, intersect.reverse);
+				let tex_pos: f64 = (y_min as f64 - camera.horizon() as f64 + wall_height as f64 / 2.0) * step;
+				RenderParameters::new(texture, step, wall_height, tex_pos, y_min, y_max)
+			}).collect();
 
-		// 	self.draw_wall_column(buf, origin_x, origin_y, angle, sweep, &mut parameters);
+			self.render_column(buf, sweep, &mut parameters);
 
 			angle += 1;
 			if angle >= trig::ANGLE_360 {
@@ -137,9 +390,9 @@ impl Renderer {
 		}
 	}
 
-	pub fn from_json(json: &serde_json::Value) -> Result<Renderer, &'static str> {
-		Ok(Renderer {})
-	}
+	// pub fn from_json(_json: &serde_json::Value) -> Result<Renderer, &'static str> {
+	// 	Ok(Renderer::new())
+	// }
 }
 
 // struct Colour {

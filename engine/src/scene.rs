@@ -1,7 +1,7 @@
 use serde_json;
 
 pub struct TextureTile {
-	texture: u32,
+	pub texture: u32,
 }
 
 pub enum Tile {
