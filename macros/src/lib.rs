@@ -123,6 +123,34 @@ fn declare_wall_height_table() -> TokenStream {
     }
 }
 
+fn declare_wall_texture_index_table() -> TokenStream {
+    const RANGE: i32  = consts::WALL_HEIGHT_MAX - consts::WALL_HEIGHT_MIN;
+    const SIZE: usize = (RANGE * consts::PROJECTION_PLANE_HEIGHT) as usize;
+    
+    let mut wall_texture_index: [usize; SIZE] = [ 0; SIZE ];
+
+    for entry in 0..RANGE {
+        let height = entry + consts::WALL_HEIGHT_MIN;
+        let y_min = std::cmp::max(0, consts::PROJECTION_PLANE_HORIZON - (height >> 1));
+        let y_max = std::cmp::min(consts::PROJECTION_PLANE_HEIGHT - 1, consts::PROJECTION_PLANE_HORIZON + (height >> 1));
+        let step: f64 = consts::TEXTURE_HEIGHT as f64 / height as f64;
+        let mut tex_pos: f64 = (y_min as f64 - consts::PROJECTION_PLANE_HORIZON as f64 + height as f64 / 2.0) * step;
+
+        for index in 0..consts::PROJECTION_PLANE_HEIGHT {
+            let i = (index + entry * consts::PROJECTION_PLANE_HEIGHT) as usize;
+            let tex_y = tex_pos.clamp(0.0, 63.0) as usize;
+            wall_texture_index[i] = tex_y;
+            if index >= y_min && index <= y_max { 
+                tex_pos += step;
+            }
+        }
+    }
+
+    quote! {
+        static WALL_TEXTURE_INDEX: [usize; #SIZE] = [ #(#wall_texture_index),* ];
+    }
+}
+
 fn declare_floor_ceiling_tables() -> TokenStream {
     // let mut FLOOR_TEXTURE_Y_RAYS: [i32; PROJECTION_PLANE_WIDTH * PROJECTION_PLANE_CENTRE_Y] = [0; PROJECTION_PLANE_WIDTH * PROJECTION_PLANE_CENTRE_Y];
     // let mut FLOOR_TEXTURE_X_RAYS: [i32; PROJECTION_PLANE_WIDTH * PROJECTION_PLANE_CENTRE_Y] = [0; PROJECTION_PLANE_WIDTH * PROJECTION_PLANE_CENTRE_Y];
@@ -145,11 +173,12 @@ fn declare_floor_ceiling_tables() -> TokenStream {
 
 #[proc_macro]
 pub fn insert_lookup_tables(_input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-	let trig_tables          = declare_trig_tables();
-	let step_tables          = declare_step_tables();
-    let fisheye_table        = declare_fisheye_table();
-    let wall_height_table    = declare_wall_height_table();
-    let floor_ceiling_tables = declare_floor_ceiling_tables();
+	let trig_tables              = declare_trig_tables();
+	let step_tables              = declare_step_tables();
+    let fisheye_table            = declare_fisheye_table();
+    let wall_height_table        = declare_wall_height_table();
+    let floor_ceiling_tables     = declare_floor_ceiling_tables();
+    let wall_texture_index_table = declare_wall_texture_index_table();
 
 	proc_macro::TokenStream::from(quote! {
 		#trig_tables
@@ -157,5 +186,6 @@ pub fn insert_lookup_tables(_input: proc_macro::TokenStream) -> proc_macro::Toke
         #fisheye_table
         #wall_height_table
         #floor_ceiling_tables
+        #wall_texture_index_table
 	})
 }

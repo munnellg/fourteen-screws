@@ -17,12 +17,13 @@ impl FourteenScrewsDemo {
 		
 		let scene    = Scene::from_json(&json["scene"]).ok().unwrap();
 		let player   = Camera::from_json(&json["camera"]).ok().unwrap();
-		let renderer = Renderer::from_json(&json["camera"]).ok().unwrap();
+		let renderer = Renderer::from_json(&json["renderer"]).ok().unwrap();
 
 		FourteenScrewsDemo { scene, player, renderer }
 	}
 
 	pub fn render(&mut self, buf: &mut[u8]) {
-
+		self.renderer.render(buf, &self.scene, &self.player);
+		self.player.rotate(1);
 	}
 }
