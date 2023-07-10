@@ -63,10 +63,8 @@ fn declare_step_tables() -> TokenStream {
                 if step > 0.0 {
                   step = -step;
                 }
-            } else {
-                if step < 0.0 {
-                  step = -step;
-                }
+            } else if step < 0.0 {
+                step = -step;
             }
         }
 
@@ -80,10 +78,8 @@ fn declare_step_tables() -> TokenStream {
             if step < 0.0 {
               step = -step;
             }
-        } else {
-            if step > 0.0 {
-              step = -step;
-            }
+        } else if step > 0.0 {
+            step = -step;
         }
 
         y_step[i] = step.to_fp();

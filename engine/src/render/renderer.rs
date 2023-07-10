@@ -7,6 +7,19 @@ use shared::consts;
 use shared::fp;
 use shared::fp::{ ToFixedPoint, FromFixedPoint };
 
+macro_rules! colour_to_buf {
+	($colour:expr, $buf:expr, $idx:expr) => {
+		($buf[$idx + 0], $buf[$idx + 1], $buf[$idx + 2], $buf[$idx + 3]) = $colour.tuple();
+	}
+}
+
+macro_rules! blend_colour_to_buf {
+	($colour:expr, $buf:expr, $idx:expr) => {
+		let blended = $colour.blend(&Colour::new($buf[$idx + 0], $buf[$idx + 1], $buf[$idx + 2], $buf[$idx + 3]));
+		colour_to_buf!(blended, $buf, $idx);
+	}
+}
+
 pub struct Colour {
 	pub r: u8,
 	pub g: u8,
@@ -115,7 +128,7 @@ impl Renderer {
 		let y_max = parameters[0].y_max;
 
 		for y in y_min..=y_max {
-			let mut pixel = Colour::new(0, 0, 0, 0);
+			let mut pixel = Colour::new(255, 0, 0, 255);
 			
 			let idx: usize = 4 * (column + y * consts::PROJECTION_PLANE_WIDTH) as usize;
 			
@@ -125,15 +138,14 @@ impl Renderer {
 				let tex_y = intersect.tex_idx[y as usize];
 				pixel = pixel.blend(&intersect.texture[tex_y]);
 			}
-
-			pixel = pixel.blend(&Colour::new(buf[idx + 0], buf[idx + 1], buf[idx + 2], buf[idx + 3]));
-			(buf[idx + 0], buf[idx + 1], buf[idx + 2], buf[idx + 3]) = pixel.tuple();
+			
+			blend_colour_to_buf!(pixel, buf, idx);
 		}
 	}
 
 	fn draw_background(&self, buf: &mut[u8]) {
 
-		for y in 0..consts::PROJECTION_PLANE_HORIZON / 2 {
+		for y in 0..consts::PROJECTION_PLANE_HORIZON {
 			for x in 0..consts::PROJECTION_PLANE_WIDTH {
 				let idx: usize = 4 * (x + y * consts::PROJECTION_PLANE_WIDTH) as usize;
 				buf[idx + 0] = 0x38;

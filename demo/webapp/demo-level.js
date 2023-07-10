@@ -1,5 +1,5 @@
 module.exports = {
-  camera: { x: 128, y: 128, angle: 0, horizon: 100 },
+  camera: { x: 32, y: 32, angle: 0, horizon: 100 },
   scene: {
   	width: 5,
   	height: 5,

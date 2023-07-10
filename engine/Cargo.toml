@@ -25,3 +25,4 @@ wasm-bindgen = "0.2.86"
 shared = { path = "../shared" }
 macros = { path = "../macros" }
 num-traits = "0.2.15"
+itertools = "0.11.0"

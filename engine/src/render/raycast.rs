@@ -1,5 +1,6 @@
 use crate::scene::{ Tile, Scene };
 use crate::trig;
+use itertools::Itertools;
 use shared::consts;
 use shared::fp;
 use shared::fp::{ ToFixedPoint, FromFixedPoint };
@@ -20,21 +21,28 @@ impl Intersection {
 	}
 }
 
-pub struct RayCaster {}
+struct Ray<'a> {
+	step_x: i32, // distance to next vertical intersect
+	step_y: i32, // distance to next horizontal intersect
+	x: i32,      // x coordinate of current ray intersect
+	y: i32,      // y coordinate of current ray intersect
+	flipped: bool,
+	direction: i32,
+	scene: &'a Scene,
+	origin_x: i32,
+	origin_y: i32,
 
-impl RayCaster {
-	pub fn new() -> RayCaster {
-		RayCaster {}
-	}
+	cast_ray: fn(&mut Self) -> Option<Intersection>,
+	check_undefined: fn(&Self) -> bool
+}
 
-	fn find_horizontal_intersect(&self, origin_x: i32, origin_y: i32, direction: i32, scene: &Scene) -> Vec<Intersection> {
-		let step_x: i32; // distance to next vertical intersect
-		let step_y: i32; // distance to next horizontal intersect
-		let mut x: i32;  // x coordinate of current ray intersect
-		let mut y: i32;  // y coordinate of current ray intersect
+impl Ray<'_> {
+	pub fn horizontal(origin_x: i32, origin_y: i32, direction: i32, scene: &Scene) -> Ray {
+		let step_x: i32;
+		let step_y: i32;
+		let x: i32;
+		let y: i32;
 		let flipped: bool;
-
-		let mut intersects = Vec::new();
 
 		// determine if looking up or down and find horizontal intersection
 		if direction > trig::ANGLE_0 && direction < trig::ANGLE_180 { // looking down
@@ -53,45 +61,15 @@ impl RayCaster {
 			flipped = false;
 		}
 
-		if direction == trig::ANGLE_0 || direction == trig::ANGLE_180 {
-			return intersects;
-		}
-
-		// Cast x axis intersect rays, build up horizontal intersections
-		loop {
-			let grid_x = fp::div(x, consts::FP_TILE_SIZE).to_i32();
-			let grid_y = fp::div(y, consts::FP_TILE_SIZE).to_i32();
-			
-			match scene.x_wall(grid_x, grid_y) {
-				Tile::Wall(wall) => {
-					let world_x  = x.to_i32();
-					let world_y  = y.to_i32();
-					let distance = fp::mul(fp::sub(y, origin_y), trig::isin(direction)).abs();
-					let texture  = wall.texture;
-					let texture_column = world_x & (consts::TILE_SIZE - 1);
-					let intersection = Intersection::new(world_x, world_y, distance, texture, texture_column, flipped);
-					intersects.push(intersection);
-				},
-				Tile::OutOfBounds => break,
-				Tile::Empty => {}
-			}
-
-			x = fp::add(x, step_x);
-			y = fp::add(y, step_y);
-		}
-
-
-		intersects
+		Ray { step_x, step_y, x, y, flipped, direction, scene, origin_x, origin_y, check_undefined: Ray::horizontal_is_undefined, cast_ray: Ray::cast_horizontal }
 	}
 
-	fn find_vertical_intersect(&self, origin_x: i32, origin_y: i32, direction: i32, scene: &Scene) -> Vec<Intersection> {
+	pub fn vertical(origin_x: i32, origin_y: i32, direction: i32, scene: &Scene) -> Ray {
 		let step_x: i32; // distance to next vertical intersect
 		let step_y: i32; // distance to next horizontal intersect
-		let mut x: i32;  // x coordinate of current ray intersect
-		let mut y: i32;  // y coordinate of current ray intersect
+		let x: i32;      // x coordinate of current ray intersect
+		let y: i32;      // y coordinate of current ray intersect
 		let flipped: bool;
-
-		let mut intersects = Vec::new();
 
 		// determine if looking left or right and find vertical intersection
 		if direction <= trig::ANGLE_90 || direction > trig::ANGLE_270 { // looking right
@@ -112,65 +90,113 @@ impl RayCaster {
 			flipped = true;
 		};
 
-		if direction == trig::ANGLE_90 || direction == trig::ANGLE_270 {
-			return intersects;
-		}
+		Ray { step_x, step_y, x, y, flipped, direction, scene, origin_x, origin_y, check_undefined: Ray::vertical_is_undefined, cast_ray: Ray::cast_vertical }
+	}
+	
+	pub fn is_undefined(&self) -> bool {
+		(self.check_undefined)(self)
+	}
 
-		loop {
-			let grid_x = fp::div(x, consts::FP_TILE_SIZE).to_i32();
-			let grid_y = fp::div(y, consts::FP_TILE_SIZE).to_i32();
+	pub fn cast(&mut self) -> Option<Intersection> {
+		(self.cast_ray)(self)
+	}
+
+	fn horizontal_is_undefined(&self) -> bool {
+		self.direction == trig::ANGLE_0 || self.direction == trig::ANGLE_180
+	}
+
+	fn vertical_is_undefined(&self) -> bool {
+		self.direction == trig::ANGLE_90 || self.direction == trig::ANGLE_270
+	}
+
+	fn cast_horizontal(&mut self) -> Option<Intersection> {
+		let mut result = None;
+
+		while !result.is_some() {
+			let grid_x = fp::div(self.x, consts::FP_TILE_SIZE).to_i32();
+			let grid_y = fp::div(self.y, consts::FP_TILE_SIZE).to_i32();
 			
-			match scene.y_wall(grid_x, grid_y) {
+			match self.scene.x_wall(grid_x, grid_y) {
 				Tile::Wall(wall) => {
-					let world_x  = x.to_i32();
-					let world_y  = y.to_i32();
-					let distance = fp::mul(fp::sub(x, origin_x), trig::icos(direction)).abs();
+					let world_x  = self.x.to_i32();
+					let world_y  = self.y.to_i32();
+					let distance = fp::mul(fp::sub(self.y, self.origin_y), trig::isin(self.direction)).abs();
 					let texture  = wall.texture;
-					let texture_column = world_y & (consts::TILE_SIZE - 1);
-					let intersection = Intersection::new(world_x, world_y, distance, texture, texture_column, flipped);
-					intersects.push(intersection);
+					let texture_column = world_x & (consts::TILE_SIZE - 1);
+					result = Some(Intersection::new(world_x, world_y, distance, texture, texture_column, self.flipped));
 				},
 				Tile::OutOfBounds => break,
 				Tile::Empty => {}
 			}
 
-			x = fp::add(x, step_x);
-			y = fp::add(y, step_y);
+			self.x = fp::add(self.x, self.step_x);
+			self.y = fp::add(self.y, self.step_y);
 		}
 
-		intersects
+		result
+	}
+
+	fn cast_vertical(&mut self) -> Option<Intersection> {
+		let mut result = None;
+
+		while !result.is_some() {
+			let grid_x = fp::div(self.x, consts::FP_TILE_SIZE).to_i32();
+			let grid_y = fp::div(self.y, consts::FP_TILE_SIZE).to_i32();
+			
+			match self.scene.x_wall(grid_x, grid_y) {
+				Tile::Wall(wall) => {
+					let world_x  = self.x.to_i32();
+					let world_y  = self.y.to_i32();
+					let distance = fp::mul(fp::sub(self.x, self.origin_x), trig::icos(self.direction)).abs();
+					let texture  = wall.texture;
+					let texture_column = world_y & (consts::TILE_SIZE - 1);
+					result = Some(Intersection::new(world_x, world_y, distance, texture, texture_column, self.flipped));
+				},
+				Tile::OutOfBounds => break,
+				Tile::Empty => {}
+			}
+
+			self.x = fp::add(self.x, self.step_x);
+			self.y = fp::add(self.y, self.step_y);
+		}
+
+		result
+	}
+}
+
+impl Iterator for Ray<'_> {
+	type Item = Intersection;
+
+	fn next(&mut self) -> Option<Self::Item> {
+		self.cast()
+	}
+}
+
+pub struct RayCaster {}
+
+impl RayCaster {
+	pub fn new() -> RayCaster {
+		RayCaster {}
 	}
 
 	pub fn find_wall_intersections(&self, origin_x: i32, origin_y: i32, direction: i32, scene: &Scene) -> Vec<Intersection> {
-		let hintersects = self.find_horizontal_intersect(origin_x, origin_y, direction, scene);
-		let vintersects = self.find_vertical_intersect(origin_x, origin_y, direction, scene);
+		let ray_h = Ray::horizontal(origin_x, origin_y, direction, scene);
+		let ray_v = Ray::vertical(origin_x, origin_y, direction, scene);
 
-		let mut intersects = Vec::new();
-		intersects.reserve(hintersects.len() + vintersects.len());
+		if ray_h.is_undefined() { return ray_v.collect(); }
+		if ray_v.is_undefined() { return ray_h.collect(); }
 
-		let mut i = 0;
-		let mut j = 0;
+		vec![ray_h, ray_v].into_iter().kmerge_by(|a, b| a.dist < b.dist).collect()
+	}
+}
 
-		while i < hintersects.len() && j < vintersects.len() {
-			if hintersects[i].dist < vintersects[j].dist {
-				intersects.push(hintersects[i]);
-				i += 1;
-			} else {
-				intersects.push(vintersects[j]);
-				j += 1;
-			}
-		}
 
-		while i < hintersects.len() {			
-			intersects.push(hintersects[i]);
-			i += 1;
-		}
+#[cfg(test)]
+mod test {
+	use super::*;
 
-		while j < vintersects.len() {
-			intersects.push(vintersects[j]);
-			j += 1;
-		}
-
-		intersects
+	#[test]
+	fn name() {
+		let raycaster = RayCaster::new();
 	}
 }
