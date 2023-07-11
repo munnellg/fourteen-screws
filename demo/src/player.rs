@@ -280,9 +280,11 @@ impl Player {
 
 	pub fn turn_left(&mut self) {
 		self.camera.rotate(-self.rotate_speed);
+		log!("{}", self.camera.angle());
 	}
 
 	pub fn turn_right(&mut self) {
 		self.camera.rotate(self.rotate_speed);
+		log!("{}", self.camera.angle());
 	}
 }

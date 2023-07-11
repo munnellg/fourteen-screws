@@ -128,7 +128,7 @@ impl Renderer {
 		let y_max = parameters[0].y_max;
 
 		for y in y_min..=y_max {
-			let mut pixel = Colour::new(255, 0, 0, 255);
+			let mut pixel = Colour::new(0, 0, 0, 0);
 			
 			let idx: usize = 4 * (column + y * consts::PROJECTION_PLANE_WIDTH) as usize;
 			
@@ -187,7 +187,7 @@ impl Renderer {
 			
 			// for each intersection, get a reference to its texture and figure out how
 			// it should be drawn
-			let parameters = intersects.iter().map(|intersect| {
+			let parameters: Vec<RenderParameters> = intersects.iter().map(|intersect| {
 				let dist        = fp::div(intersect.dist, trig::fisheye_correction(sweep)).to_i32();
 				let wall_height = trig::wall_height(dist);
 				let mid_height  = wall_height >> 1;

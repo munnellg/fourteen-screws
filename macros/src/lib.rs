@@ -120,7 +120,7 @@ fn declare_wall_height_table() -> TokenStream {
 }
 
 fn declare_wall_texture_index_table() -> TokenStream {
-    const RANGE: i32  = consts::WALL_HEIGHT_MAX - consts::WALL_HEIGHT_MIN;
+    const RANGE: i32  = (consts::WALL_HEIGHT_MAX - consts::WALL_HEIGHT_MIN) + 1;
     const SIZE: usize = (RANGE * consts::PROJECTION_PLANE_HEIGHT) as usize;
     
     let mut wall_texture_index: [usize; SIZE] = [ 0; SIZE ];

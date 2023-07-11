@@ -46,6 +46,7 @@ pub fn wall_height(distance: i32) -> i32 {
 }
 
 pub fn wall_texture_index(height: i32) -> &'static [usize] {
+	let height      = height.clamp(shared::consts::render::WALL_HEIGHT_MIN, shared::consts::render::WALL_HEIGHT_MAX);
 	let true_i      = height - shared::consts::render::WALL_HEIGHT_MIN;
 	let head: usize = (true_i * shared::consts::display::PROJECTION_PLANE_HEIGHT) as usize;
 	let tail: usize = head + shared::consts::display::PROJECTION_PLANE_HEIGHT as usize;

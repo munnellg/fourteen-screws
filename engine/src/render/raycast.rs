@@ -22,18 +22,18 @@ impl Intersection {
 }
 
 struct Ray<'a> {
-	step_x: i32, // distance to next vertical intersect
-	step_y: i32, // distance to next horizontal intersect
-	x: i32,      // x coordinate of current ray intersect
-	y: i32,      // y coordinate of current ray intersect
-	flipped: bool,
-	direction: i32,
-	scene: &'a Scene,
-	origin_x: i32,
-	origin_y: i32,
+	step_x: i32,        // distance to next vertical intersect
+	step_y: i32,        // distance to next horizontal intersect
+	x: i32,             // x coordinate of current ray intersect
+	y: i32,             // y coordinate of current ray intersect
+	flipped: bool,      // should the texture of the encountered surface be rendered backwards
+	direction: i32,     // direction in which the ray is cast
+	scene: &'a Scene,   // the environment in which the ray is being cast
+	origin_x: i32,      // x point of origin of the ray in fixed point representation
+	origin_y: i32,      // y point of origin of the ray in fixed point representation
 
-	cast_ray: fn(&mut Self) -> Option<Intersection>,
-	check_undefined: fn(&Self) -> bool
+	cast_ray: fn(&mut Self) -> Option<Intersection>, // either cast_horizontal or cast_vertical depending on ray type
+	check_undefined: fn(&Self) -> bool               // either horizontal_is_undefined or vertical_is_undefined depending on ray type
 }
 
 impl Ray<'_> {
@@ -116,7 +116,7 @@ impl Ray<'_> {
 			let grid_x = fp::div(self.x, consts::FP_TILE_SIZE).to_i32();
 			let grid_y = fp::div(self.y, consts::FP_TILE_SIZE).to_i32();
 			
-			match self.scene.x_wall(grid_x, grid_y) {
+			match self.scene.y_wall(grid_x, grid_y) {
 				Tile::Wall(wall) => {
 					let world_x  = self.x.to_i32();
 					let world_y  = self.y.to_i32();
@@ -142,9 +142,9 @@ impl Ray<'_> {
 		while !result.is_some() {
 			let grid_x = fp::div(self.x, consts::FP_TILE_SIZE).to_i32();
 			let grid_y = fp::div(self.y, consts::FP_TILE_SIZE).to_i32();
-			
+
 			match self.scene.x_wall(grid_x, grid_y) {
-				Tile::Wall(wall) => {
+				Tile::Wall(wall) => {					
 					let world_x  = self.x.to_i32();
 					let world_y  = self.y.to_i32();
 					let distance = fp::mul(fp::sub(self.x, self.origin_x), trig::icos(self.direction)).abs();
@@ -194,9 +194,39 @@ impl RayCaster {
 #[cfg(test)]
 mod test {
 	use super::*;
+	use std::fs;
+	use std::path::Path;
+	use std::path::PathBuf;
+
+	fn load_scene(fname: &PathBuf) -> Result<Scene, Box<dyn std::error::Error>> {
+		let contents = fs::read_to_string(fname)?;
+		let json: serde_json::Value = serde_json::from_str(contents.as_str())?;
+		let scene = Scene::from_json(&json)?;
+		Ok(scene)
+	}
 
 	#[test]
-	fn name() {
+	fn test_facing_directly_right() {
+		let fname = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests").join("resources").join("test-scene-1.json");
+		let scene = load_scene(&fname).expect("Failed to load scene for test");
 		let raycaster = RayCaster::new();
+
+		let intersections = raycaster.find_wall_intersections(128.to_fp(), 128.to_fp(), trig::ANGLE_0, &scene);
+
+		assert_eq!(1, intersections.len());
+	}
+
+	#[test]
+	fn test_against_wall() {
+		let fname = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests").join("resources").join("test-scene-1.json");
+		let scene = load_scene(&fname).expect("Failed to load scene for test");
+		let raycaster = RayCaster::new();
+
+		let intersections = raycaster.find_wall_intersections(28.to_fp(), 28.to_fp(), trig::ANGLE_270, &scene);
+
+		assert_eq!(1, intersections.len());
+
+		let intersection = intersections[0];
+		assert_eq!(28, intersection.dist.to_i32());
 	}
 }

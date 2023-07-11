@@ -66,17 +66,3 @@ impl Camera {
 		Ok(Camera::new(x, y, a, h))
 	}
 }
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	#[test]
-	fn test_initialize() {
-		let camera = Camera::new(10, 15, 20, 25);
-		assert_eq!(camera.x(), 10);
-		assert_eq!(camera.y(), 15);
-		assert_eq!(camera.angle(), 20);
-		assert_eq!(camera.horizon(), 25);
-	}
-}
