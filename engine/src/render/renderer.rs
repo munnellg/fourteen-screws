@@ -1,11 +1,11 @@
 use base64::{Engine as _, engine::general_purpose};
-use crate::{ Camera, RayCaster };
+use crate::{ Camera };
 use crate::scene::{ Scene };
 use crate::trig;
+use crate::render::raycast;
 use serde_json;
 use shared::consts;
-use shared::fp;
-use shared::fp::{ ToFixedPoint, FromFixedPoint };
+use shared::fp::{ ToFixedPoint };
 
 macro_rules! colour_to_buf {
 	($colour:expr, $buf:expr, $idx:expr) => {
@@ -17,6 +17,36 @@ macro_rules! blend_colour_to_buf {
 	($colour:expr, $buf:expr, $idx:expr) => {
 		let blended = $colour.blend(&Colour::new($buf[$idx + 0], $buf[$idx + 1], $buf[$idx + 2], $buf[$idx + 3]));
 		colour_to_buf!(blended, $buf, $idx);
+	}
+}
+
+macro_rules! screen_idx {
+	($x:expr, $y:expr) => {
+		4 * ($x + $y * consts::PROJECTION_PLANE_WIDTH) as usize
+	}
+}
+
+macro_rules! put_surface_pixel {
+	($intersect:expr, $buf:expr, $idx:expr, $textures:expr) => {
+		if $intersect.is_some() {
+			let intersect = $intersect.unwrap();
+			let texture = $textures.get(intersect.texture, intersect.x, false);
+			let pixel = &texture[intersect.y as usize];
+			colour_to_buf!(pixel, $buf, $idx);	
+		}
+	}
+}
+
+macro_rules! blend_surface_pixel {
+	($intersect:expr, $pixel: expr, $textures:expr) => {
+		if $intersect.is_some() {
+			let intersect = $intersect.unwrap();
+			let texture = $textures.get(intersect.texture, intersect.x, false);
+			let pixel = &texture[intersect.y as usize];
+			$pixel.blend(pixel)	
+		} else {
+			$pixel
+		}
 	}
 }
 
@@ -103,8 +133,12 @@ impl TextureMap {
 		let tail: usize = head + self.texture_height;
 		&self.textures[head..tail]
 	}
+}
 
-	pub fn from_json(json: &serde_json::Value) -> Result<TextureMap, &'static str> {
+impl TryFrom<&serde_json::Value> for TextureMap {
+	type Error = &'static str;
+
+	fn try_from(json: &serde_json::Value) -> Result<Self, Self::Error> {
 		let width    = json["width"].as_u64().unwrap() as usize;
 		let height   = json["height"].as_u64().unwrap() as usize;
 		let byte_str = json["textures"].as_str().unwrap();
@@ -114,23 +148,32 @@ impl TextureMap {
 }
 
 pub struct Renderer {
-	raycaster: RayCaster,
 	textures: TextureMap,
 }
 
 impl Renderer {
-	pub fn new(raycaster: RayCaster, textures: TextureMap) -> Renderer {
-		Renderer{ raycaster, textures }
+	pub fn new(textures: TextureMap) -> Renderer {
+		Renderer{ textures }
 	}
 
-	pub fn render_column(&self, buf: &mut[u8], column: i32, parameters: Vec<RenderParameters>) {
+	pub fn render_column(&self, buf: &mut[u8], origin_x: i32, origin_y: i32, angle: i32, column: i32, camera: &Camera, scene: &Scene) {
+			
+		let parameters = self.intersect_to_render_params(origin_x, origin_y, angle, column, camera, scene);
+
 		let y_min = parameters[0].y_min;
 		let y_max = parameters[0].y_max;
 
+		// draw ceiling
+		for y in 0..y_min {
+			let intersect = raycast::find_ceiling_intersection(origin_x, origin_y, angle, y, column, scene);
+			put_surface_pixel!(intersect, buf, screen_idx!(column, y), self.textures);
+		}
+
+		// draw walls		
 		for y in y_min..=y_max {
 			let mut pixel = Colour::new(0, 0, 0, 0);
 			
-			let idx: usize = 4 * (column + y * consts::PROJECTION_PLANE_WIDTH) as usize;
+			let idx: usize = screen_idx!(column, y);
 			
 			for intersect in parameters.iter() {
 				if y < intersect.y_min || y > intersect.y_max { break; } // terminate early if either we're above/below the tallest wall
@@ -139,35 +182,29 @@ impl Renderer {
 				pixel = pixel.blend(&intersect.texture[tex_y]);
 			}
 			
+			// blend in the floor or ceiling through transparent areas if necessary
+			if pixel.a < 255 {
+				let intersect = if y > camera.horizon() {
+					raycast::find_floor_intersection(origin_x, origin_y, angle, y, column, scene)
+				} else {
+					raycast::find_ceiling_intersection(origin_x, origin_y, angle, y, column, scene)
+				};
+
+				pixel = blend_surface_pixel!(intersect, pixel, self.textures);
+			}
+
 			blend_colour_to_buf!(pixel, buf, idx);
 		}
-	}
 
-	fn draw_background(&self, buf: &mut[u8]) {
-
-		for y in 0..consts::PROJECTION_PLANE_HORIZON {
-			for x in 0..consts::PROJECTION_PLANE_WIDTH {
-				let idx: usize = 4 * (x + y * consts::PROJECTION_PLANE_WIDTH) as usize;
-				buf[idx + 0] = 0x38;
-				buf[idx + 1] = 0x38;
-				buf[idx + 2] = 0x38;
-				buf[idx + 3] = 0xFF; // alpha channel				
-			}
-		}
-
-		for y in consts::PROJECTION_PLANE_HORIZON..consts::PROJECTION_PLANE_HEIGHT {
-			for x in 0..consts::PROJECTION_PLANE_WIDTH {
-				let idx: usize = 4 * (x + y * consts::PROJECTION_PLANE_WIDTH) as usize;
-				buf[idx + 0] = 0x70;
-				buf[idx + 1] = 0x70;
-				buf[idx + 2] = 0x70;
-				buf[idx + 3] = 0xFF; // alpha channel
-			}
+		// draw floor
+		for y in y_max..consts::PROJECTION_PLANE_HEIGHT {
+			let intersect = raycast::find_floor_intersection(origin_x, origin_y, angle, y, column, scene);
+			put_surface_pixel!(intersect, buf, screen_idx!(column, y), self.textures);
 		}
 	}
 
 	pub fn render(&self, buf: &mut[u8], scene: &Scene, camera: &Camera) {
-		self.draw_background(buf);
+		self.render_background(buf);
 		
 		// angle is the direction camera is facing
 		// need to start out sweep 30 degrees to the left
@@ -183,22 +220,8 @@ impl Renderer {
 
 		// sweep of the rays will be through 60 degrees
 		for sweep in 0..trig::ANGLE_60 {
-			let intersects = self.raycaster.find_wall_intersections(origin_x, origin_y, angle, scene);
-			
-			// for each intersection, get a reference to its texture and figure out how
-			// it should be drawn
-			let parameters: Vec<RenderParameters> = intersects.iter().map(|intersect| {
-				let dist        = fp::div(intersect.dist, trig::fisheye_correction(sweep)).to_i32();
-				let wall_height = trig::wall_height(dist);
-				let mid_height  = wall_height >> 1;
-				let y_min       = std::cmp::max(0, camera.horizon() - mid_height);
-				let y_max       = std::cmp::min(consts::PROJECTION_PLANE_HEIGHT - 1, camera.horizon() + mid_height);
-				let tex_idx     = trig::wall_texture_index(wall_height);
-				let texture     = self.textures.get(intersect.texture, intersect.texture_column, intersect.reverse);
-				RenderParameters::new(texture, tex_idx, y_min, y_max)
-			}).collect();
 
-			self.render_column(buf, sweep, parameters);
+			self.render_column(buf, origin_x, origin_y, angle, sweep, &camera, &scene);
 
 			angle += 1;
 			if angle >= trig::ANGLE_360 {
@@ -207,9 +230,46 @@ impl Renderer {
 		}
 	}
 
-	pub fn from_json(json: &serde_json::Value) -> Result<Renderer, &'static str> {
-		let raycaster = RayCaster::new();
-		let textures  = TextureMap::from_json(&json["texture_map"]).ok().unwrap();
-		Ok(Renderer::new(raycaster, textures))
+	fn render_background(&self, buf: &mut[u8]) {
+		let ceiling = Colour::new(0x38, 0x38,  0x38, 0xFF);
+		let floor   = Colour::new(0x70, 0x70,  0x70, 0xFF);
+
+		for y in 0..consts::PROJECTION_PLANE_HORIZON {
+			for x in 0..consts::PROJECTION_PLANE_WIDTH {
+				colour_to_buf!(ceiling, buf, screen_idx!(x, y));
+			}
+		}
+
+		for y in consts::PROJECTION_PLANE_HORIZON..consts::PROJECTION_PLANE_HEIGHT {
+			for x in 0..consts::PROJECTION_PLANE_WIDTH {
+				colour_to_buf!(floor, buf, screen_idx!(x, y));
+			}
+		}
+	}
+
+	fn intersect_to_render_params(&self, origin_x: i32, origin_y: i32, angle: i32, column: i32, camera: &Camera, scene: &Scene) -> Vec<RenderParameters> {
+		let intersects = raycast::find_wall_intersections(origin_x, origin_y, angle, column, scene);
+
+		// for each intersection, get a reference to its texture and figure out how
+		// it should be drawn
+		return intersects.iter().map(|intersect| {
+			let dist        = intersect.dist;
+			let wall_height = trig::wall_height(dist);
+			let mid_height  = wall_height >> 1;
+			let y_min       = std::cmp::max(0, camera.horizon() - mid_height);
+			let y_max       = std::cmp::min(consts::PROJECTION_PLANE_HEIGHT - 1, camera.horizon() + mid_height);
+			let tex_idx     = trig::wall_texture_index(wall_height);
+			let texture     = self.textures.get(intersect.texture, intersect.texture_column, intersect.reverse);
+			RenderParameters::new(texture, tex_idx, y_min, y_max)
+		}).collect();
+	}
+}
+
+impl TryFrom<&serde_json::Value> for Renderer {
+	type Error = &'static str;
+
+	fn try_from(json: &serde_json::Value) -> Result<Self, Self::Error> {
+		let textures  = TextureMap::try_from(&json["texture_map"]).ok().unwrap();
+		Ok(Renderer::new(textures))
 	}
 }

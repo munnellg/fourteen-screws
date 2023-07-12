@@ -47,9 +47,9 @@ impl FourteenScrewsDemo {
 	pub fn load_level(json_str: &str) -> FourteenScrewsDemo {
 		let json: serde_json::Value = serde_json::from_str(json_str).ok().unwrap();
 		
-		let scene    = Scene::from_json(&json["scene"]).ok().unwrap();
-		let camera   = Camera::from_json(&json["camera"]).ok().unwrap();
-		let renderer = Renderer::from_json(&json["renderer"]).ok().unwrap();
+		let scene    = Scene::try_from(&json["scene"]).ok().unwrap();
+		let camera   = Camera::try_from(&json["camera"]).ok().unwrap();
+		let renderer = Renderer::try_from(&json["renderer"]).ok().unwrap();
 
 		let player = player::Player::new(camera, PLAYER_MOVE_SPEED, PLAYER_TURN_SPEED, PLAYER_MARGIN);
 

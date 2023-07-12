@@ -57,8 +57,12 @@ impl Camera {
 	pub fn horizon(&self) -> i32 {
 		self.horizon
 	}
+}
 
-	pub fn from_json(json: &serde_json::Value) -> Result<Camera, &'static str> {
+impl TryFrom<&serde_json::Value> for Camera {
+	type Error = &'static str;
+
+	fn try_from(json: &serde_json::Value) -> Result<Self, Self::Error> {
 		let x = json["x"].as_i64().unwrap() as i32;
 		let y = json["y"].as_i64().unwrap() as i32;
 		let a = json["angle"].as_i64().unwrap() as i32;

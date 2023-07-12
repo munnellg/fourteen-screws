@@ -4,15 +4,6 @@ use fourteen_screws::maths::{ ToFixedPoint, FromFixedPoint };
 use fourteen_screws::trig;
 use fourteen_screws::Tile;
 
-use wasm_bindgen::prelude::*;
-use web_sys;
-
-macro_rules! log {
-	( $( $t:tt )* ) => {
-		web_sys::console::log_1(&format!( $( $t )* ).into());
-	}
-}
-
 #[derive(PartialEq)]
 pub enum HitResult {
 	Nothing,
@@ -58,9 +49,8 @@ impl Player {
 		let grid_y = y_top / fourteen_screws::TILE_SIZE;
 
 		if x1 < xp { // are we moving left
-			if let Tile::Wall(wall) = scene.x_wall(grid_x, grid_y) {
+			if let Tile::Surface(wall) = scene.x_wall(grid_x, grid_y) {
 				if !wall.passable && (x1 < x_left || (x1 - x_left).abs() < self.margin) { // we crossed the wall or we're too close
-					log!("Blocked Left");
 					x1 = xp;
 					hit_result = HitResult::SlideX;
 				}
@@ -68,20 +58,18 @@ impl Player {
 		}
 
 		if x1 > xp { // are we moving right
-			if let Tile::Wall(wall) = scene.x_wall(grid_x + 1, grid_y) { // wall found in current square (right edge)
+			if let Tile::Surface(wall) = scene.x_wall(grid_x + 1, grid_y) { // wall found in current square (right edge)
 				if !wall.passable && (x1 > x_right || (x_right - x1).abs() < self.margin) { // we crossed the wall or we're too close
 					x1 = xp;
 					hit_result = HitResult::SlideX;
 				}
 			} else if let Tile::OutOfBounds = scene.x_wall(grid_x + 1, grid_y) {
-				log!("TILE IS OUT OF BOUNDS");
 			}
 		}
 
 		if y1 < yp { // are we moving up			
-			if let Tile::Wall(wall) = scene.y_wall(grid_x, grid_y) {
+			if let Tile::Surface(wall) = scene.y_wall(grid_x, grid_y) {
 				if !wall.passable && (y1 < y_top || (y1 - y_top).abs() < self.margin) {
-					log!("Blocked Up");
 					y1 = yp;
 					hit_result = HitResult::SlideY;
 				}
@@ -89,9 +77,8 @@ impl Player {
 		}
 
 		if y1 > yp { // are we moving down
-			if let Tile::Wall(wall) = scene.y_wall(grid_x, grid_y + 1) {
+			if let Tile::Surface(wall) = scene.y_wall(grid_x, grid_y + 1) {
 				if !wall.passable && (y1 > y_bottom || (y_bottom - y1).abs() < self.margin) {
-					log!("Blocked Down");
 					y1 = yp;
 					hit_result = HitResult::SlideY;
 				}
@@ -113,7 +100,7 @@ impl Player {
 				if x1 < x_left + half_tile { // new x position falls in left half
 
 					// check adjacent x wall (to left)
-					if let Tile::Wall(wall) = scene.x_wall(grid_x, grid_y - 1) { 
+					if let Tile::Surface(wall) = scene.x_wall(grid_x, grid_y - 1) { 
 						if !wall.passable && y1 < (y_top + self.margin) { // adjacent x wall found and new y coord is within 28 units
 							if x1 < x_left + self.margin {
 								if xp > x_left + (self.margin - 1) {
@@ -128,7 +115,7 @@ impl Player {
 					}
 
 					// check adjacent y wall (above)
-					if let Tile::Wall(wall) = scene.y_wall(grid_x - 1, grid_y) {
+					if let Tile::Surface(wall) = scene.y_wall(grid_x - 1, grid_y) {
 						if !wall.passable && x1 < x_left + self.margin {
 							if y1 < y_top + self.margin {
 								if yp > y_top + (self.margin - 1) {
@@ -147,7 +134,7 @@ impl Player {
 				if x1 > x_right - half_tile && hit_result == HitResult::Nothing {
 					
 					// check adjacent x wall (to right)
-					if let Tile::Wall(wall) = scene.x_wall(grid_x + 1, grid_y - 1) {
+					if let Tile::Surface(wall) = scene.x_wall(grid_x + 1, grid_y - 1) {
 						if !wall.passable && y1 < y_top + self.margin {
 							if x1 > x_right - self.margin {
 								if xp < x_right - (self.margin - 1) {
@@ -162,7 +149,7 @@ impl Player {
 					}
 
 					// check adjacent y wall (above)
-					if let Tile::Wall(wall) = scene.y_wall(grid_x + 1, grid_y) {
+					if let Tile::Surface(wall) = scene.y_wall(grid_x + 1, grid_y) {
 						if !wall.passable && x1 > x_right - self.margin {
 							if y1 < y_top + self.margin {
 								if yp < y_top + (self.margin - 1) {
@@ -183,7 +170,7 @@ impl Player {
 				if x1 < x_left + half_tile {					
 					
 					// check adjacent x wall (to left)
-					if let Tile::Wall(wall) = scene.x_wall(grid_x, grid_y + 1) {
+					if let Tile::Surface(wall) = scene.x_wall(grid_x, grid_y + 1) {
 						if !wall.passable && y1 > y_bottom - self.margin {
 							if x1 < x_left + self.margin {
 								if xp > x_left + (self.margin - 1) {
@@ -198,7 +185,7 @@ impl Player {
 					}
 					
 					// check adjacent y wall (below)
-					if let Tile::Wall(wall) = scene.y_wall(grid_x - 1, grid_y + 1) {
+					if let Tile::Surface(wall) = scene.y_wall(grid_x - 1, grid_y + 1) {
 						if !wall.passable && x1 < x_left + self.margin {
 							if y1 > y_bottom - self.margin {
 								if yp < y_bottom - (self.margin - 1) {
@@ -217,7 +204,7 @@ impl Player {
 				if x1 > x_right - half_tile && hit_result == HitResult::Nothing {
 					
 					// check adjacent x wall (to right)
-					if let Tile::Wall(wall) = scene.x_wall(grid_x + 1, grid_y + 1) {
+					if let Tile::Surface(wall) = scene.x_wall(grid_x + 1, grid_y + 1) {
 						if !wall.passable && y1 > y_bottom - self.margin {
 							if x1 > x_right - self.margin {
 								if xp < x_right - (self.margin - 1) {
@@ -232,7 +219,7 @@ impl Player {
 					}
 
 					// check adjacent y wall (below)
-					if let Tile::Wall(wall) = scene.y_wall(grid_x + 1, grid_y + 1) {
+					if let Tile::Surface(wall) = scene.y_wall(grid_x + 1, grid_y + 1) {
 						if !wall.passable && x1 > x_right - self.margin {
 							if y1 > y_bottom - self.margin {
 								if yp < y_bottom - (self.margin - 1) {
@@ -280,11 +267,9 @@ impl Player {
 
 	pub fn turn_left(&mut self) {
 		self.camera.rotate(-self.rotate_speed);
-		log!("{}", self.camera.angle());
 	}
 
 	pub fn turn_right(&mut self) {
 		self.camera.rotate(self.rotate_speed);
-		log!("{}", self.camera.angle());
 	}
 }

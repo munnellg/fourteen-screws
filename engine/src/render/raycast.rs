@@ -21,23 +21,29 @@ impl Intersection {
 	}
 }
 
-struct Ray<'a> {
-	step_x: i32,        // distance to next vertical intersect
-	step_y: i32,        // distance to next horizontal intersect
-	x: i32,             // x coordinate of current ray intersect
-	y: i32,             // y coordinate of current ray intersect
-	flipped: bool,      // should the texture of the encountered surface be rendered backwards
-	direction: i32,     // direction in which the ray is cast
-	scene: &'a Scene,   // the environment in which the ray is being cast
-	origin_x: i32,      // x point of origin of the ray in fixed point representation
-	origin_y: i32,      // y point of origin of the ray in fixed point representation
-
-	cast_ray: fn(&mut Self) -> Option<Intersection>, // either cast_horizontal or cast_vertical depending on ray type
-	check_undefined: fn(&Self) -> bool               // either horizontal_is_undefined or vertical_is_undefined depending on ray type
+trait Ray {
+	fn is_undefined(&self) -> bool;
 }
 
-impl Ray<'_> {
-	pub fn horizontal(origin_x: i32, origin_y: i32, direction: i32, scene: &Scene) -> Ray {
+struct RayMeta<'a> {
+	pub step_x: i32,        // distance to next vertical intersect
+	pub step_y: i32,        // distance to next horizontal intersect
+	pub x: i32,             // x coordinate of current ray intersect
+	pub y: i32,             // y coordinate of current ray intersect
+	pub flipped: bool,      // should the texture of the encountered surface be rendered backwards
+	pub direction: i32,     // direction in which the ray is cast
+	pub scene: &'a Scene,   // the environment in which the ray is being cast
+	pub origin_x: i32,      // x point of origin of the ray in fixed point representation
+	pub origin_y: i32,      // y point of origin of the ray in fixed point representation
+	pub sweep: i32,
+}
+
+struct RayH<'a> {
+	meta: RayMeta<'a>,
+}
+
+impl RayH<'_> {
+	pub fn new(origin_x: i32, origin_y: i32, direction: i32, sweep: i32, scene: &Scene) -> RayH {
 		let step_x: i32;
 		let step_y: i32;
 		let x: i32;
@@ -61,10 +67,55 @@ impl Ray<'_> {
 			flipped = false;
 		}
 
-		Ray { step_x, step_y, x, y, flipped, direction, scene, origin_x, origin_y, check_undefined: Ray::horizontal_is_undefined, cast_ray: Ray::cast_horizontal }
+		let meta = RayMeta { step_x, step_y, x, y, flipped, direction, scene, origin_x, origin_y, sweep };
+		RayH { meta }
 	}
+}
 
-	pub fn vertical(origin_x: i32, origin_y: i32, direction: i32, scene: &Scene) -> Ray {
+impl Ray for RayH<'_> {
+	fn is_undefined(&self) -> bool {
+		self.meta.direction == trig::ANGLE_0 || self.meta.direction == trig::ANGLE_180
+	}
+}
+
+impl Iterator for RayH<'_> {
+	type Item = Intersection;
+	
+	fn next(&mut self) -> Option<<Self as Iterator>::Item> {
+		let mut result = None;
+
+		while !result.is_some() {
+			let grid_x = fp::div(self.meta.x, consts::FP_TILE_SIZE).to_i32();
+			let grid_y = fp::div(self.meta.y, consts::FP_TILE_SIZE).to_i32();
+			
+			match self.meta.scene.y_wall(grid_x, grid_y) {
+				Tile::Surface(wall) => {
+					let world_x  = self.meta.x.to_i32();
+					let world_y  = self.meta.y.to_i32();
+					let distance = fp::mul(fp::sub(self.meta.y, self.meta.origin_y), trig::isin(self.meta.direction)).abs();
+					let distance = fp::div(distance, trig::fisheye_correction(self.meta.sweep)).to_i32();
+					let texture  = wall.texture;
+					let texture_column = world_x & (consts::TILE_SIZE - 1);
+					result = Some(Intersection::new(world_x, world_y, distance, texture, texture_column, self.meta.flipped));
+				},
+				Tile::OutOfBounds => break,
+				Tile::Empty => {}
+			}
+
+			self.meta.x = fp::add(self.meta.x, self.meta.step_x);
+			self.meta.y = fp::add(self.meta.y, self.meta.step_y);
+		}
+
+		result
+	}
+}
+
+struct RayV<'a> {
+	meta: RayMeta<'a>,
+}
+
+impl RayV<'_> {
+	pub fn new(origin_x: i32, origin_y: i32, direction: i32, sweep: i32, scene: &Scene) -> RayV {
 		let step_x: i32; // distance to next vertical intersect
 		let step_y: i32; // distance to next horizontal intersect
 		let x: i32;      // x coordinate of current ray intersect
@@ -90,106 +141,121 @@ impl Ray<'_> {
 			flipped = true;
 		};
 
-		Ray { step_x, step_y, x, y, flipped, direction, scene, origin_x, origin_y, check_undefined: Ray::vertical_is_undefined, cast_ray: Ray::cast_vertical }
+		let meta = RayMeta { step_x, step_y, x, y, flipped, direction, scene, origin_x, origin_y, sweep };
+		RayV { meta }
 	}
+}
+
+impl Ray for RayV<'_> {
+	fn is_undefined(&self) -> bool {
+		self.meta.direction == trig::ANGLE_90 || self.meta.direction == trig::ANGLE_270
+	}
+}
+
+impl Iterator for RayV<'_> {
+	type Item = Intersection;
 	
-	pub fn is_undefined(&self) -> bool {
-		(self.check_undefined)(self)
-	}
-
-	pub fn cast(&mut self) -> Option<Intersection> {
-		(self.cast_ray)(self)
-	}
-
-	fn horizontal_is_undefined(&self) -> bool {
-		self.direction == trig::ANGLE_0 || self.direction == trig::ANGLE_180
-	}
-
-	fn vertical_is_undefined(&self) -> bool {
-		self.direction == trig::ANGLE_90 || self.direction == trig::ANGLE_270
-	}
-
-	fn cast_horizontal(&mut self) -> Option<Intersection> {
+	fn next(&mut self) -> Option<<Self as Iterator>::Item> {
 		let mut result = None;
 
 		while !result.is_some() {
-			let grid_x = fp::div(self.x, consts::FP_TILE_SIZE).to_i32();
-			let grid_y = fp::div(self.y, consts::FP_TILE_SIZE).to_i32();
-			
-			match self.scene.y_wall(grid_x, grid_y) {
-				Tile::Wall(wall) => {
-					let world_x  = self.x.to_i32();
-					let world_y  = self.y.to_i32();
-					let distance = fp::mul(fp::sub(self.y, self.origin_y), trig::isin(self.direction)).abs();
-					let texture  = wall.texture;
-					let texture_column = world_x & (consts::TILE_SIZE - 1);
-					result = Some(Intersection::new(world_x, world_y, distance, texture, texture_column, self.flipped));
-				},
-				Tile::OutOfBounds => break,
-				Tile::Empty => {}
-			}
+			let grid_x = fp::div(self.meta.x, consts::FP_TILE_SIZE).to_i32();
+			let grid_y = fp::div(self.meta.y, consts::FP_TILE_SIZE).to_i32();
 
-			self.x = fp::add(self.x, self.step_x);
-			self.y = fp::add(self.y, self.step_y);
-		}
-
-		result
-	}
-
-	fn cast_vertical(&mut self) -> Option<Intersection> {
-		let mut result = None;
-
-		while !result.is_some() {
-			let grid_x = fp::div(self.x, consts::FP_TILE_SIZE).to_i32();
-			let grid_y = fp::div(self.y, consts::FP_TILE_SIZE).to_i32();
-
-			match self.scene.x_wall(grid_x, grid_y) {
-				Tile::Wall(wall) => {					
-					let world_x  = self.x.to_i32();
-					let world_y  = self.y.to_i32();
-					let distance = fp::mul(fp::sub(self.x, self.origin_x), trig::icos(self.direction)).abs();
+			match self.meta.scene.x_wall(grid_x, grid_y) {
+				Tile::Surface(wall) => {					
+					let world_x  = self.meta.x.to_i32();
+					let world_y  = self.meta.y.to_i32();
+					let distance = fp::mul(fp::sub(self.meta.x, self.meta.origin_x), trig::icos(self.meta.direction)).abs();
+					let distance = fp::div(distance, trig::fisheye_correction(self.meta.sweep)).to_i32();
 					let texture  = wall.texture;
 					let texture_column = world_y & (consts::TILE_SIZE - 1);
-					result = Some(Intersection::new(world_x, world_y, distance, texture, texture_column, self.flipped));
+					result = Some(Intersection::new(world_x, world_y, distance, texture, texture_column, self.meta.flipped));
 				},
 				Tile::OutOfBounds => break,
 				Tile::Empty => {}
 			}
 
-			self.x = fp::add(self.x, self.step_x);
-			self.y = fp::add(self.y, self.step_y);
+			self.meta.x = fp::add(self.meta.x, self.meta.step_x);
+			self.meta.y = fp::add(self.meta.y, self.meta.step_y);
 		}
 
 		result
 	}
 }
 
-impl Iterator for Ray<'_> {
-	type Item = Intersection;
+pub fn find_wall_intersections(origin_x: i32, origin_y: i32, direction: i32, sweep: i32, scene: &Scene) -> Vec<Intersection> {
+	let ray_h = RayH::new(origin_x, origin_y, direction, sweep, scene);
+	let ray_v = RayV::new(origin_x, origin_y, direction, sweep, scene);
 
-	fn next(&mut self) -> Option<Self::Item> {
-		self.cast()
+	if ray_h.is_undefined() { return ray_v.collect(); }
+	if ray_v.is_undefined() { return ray_h.collect(); }
+
+	ray_h.merge_by(ray_v, |a, b| a.dist < b.dist).collect()
+}
+
+pub fn find_floor_intersection(origin_x: i32, origin_y: i32, direction: i32, row: i32, column: i32, scene: &Scene) -> Option<Intersection> {
+	// convert to fixed point
+	let player_height = consts::PLAYER_HEIGHT.to_fp(); 
+	let pp_distance   = consts::DISTANCE_TO_PROJECTION_PLANE.to_fp();
+
+	// adding 1 to the row exactly on the horizon avoids a division by one error
+	// doubles up the texture at the vanishing point, but probably fine
+	let row = if row == consts::PROJECTION_PLANE_HORIZON { (row + 1).to_fp() } else { row.to_fp() };
+
+	let ratio = fp::div(player_height, fp::sub(row, consts::PROJECTION_PLANE_HORIZON.to_fp()));
+
+	let distance = fp::mul(fp::floor(fp::mul(pp_distance, ratio)), trig::fisheye_correction(column));
+
+	let x_end = fp::floor(fp::mul(distance, trig::cos(direction)));
+	let y_end = fp::floor(fp::mul(distance, trig::sin(direction)));
+
+	let x_end = fp::add(origin_x, x_end);
+	let y_end = fp::add(origin_y, y_end);
+	
+	let x = fp::floor(fp::div(x_end, consts::FP_TILE_SIZE)).to_i32();
+	let y = fp::floor(fp::div(y_end, consts::FP_TILE_SIZE)).to_i32();
+	
+	let tex_x = x_end.to_i32() & (consts::TILE_SIZE - 1);
+	let tex_y = y_end.to_i32() & (consts::TILE_SIZE - 1);
+
+	match scene.floor(x, y) {
+		Tile::Surface(floor) => Some(Intersection::new(tex_x, tex_y, distance, floor.texture, 0, false)),
+		_ => None,
 	}
 }
 
-pub struct RayCaster {}
+pub fn find_ceiling_intersection(origin_x: i32, origin_y: i32, direction: i32, row: i32, column: i32, scene: &Scene) -> Option<Intersection> {
+	// convert to fixed point
+	let player_height = consts::PLAYER_HEIGHT.to_fp(); 
+	let pp_distance   = consts::DISTANCE_TO_PROJECTION_PLANE.to_fp();
+	let wall_height   = consts::WALL_HEIGHT.to_fp();
 
-impl RayCaster {
-	pub fn new() -> RayCaster {
-		RayCaster {}
-	}
+	// adding 1 to the row exactly on the horizon avoids a division by one error
+	// doubles up the texture at the vanishing point, but probably fine
+	let row = if row == consts::PROJECTION_PLANE_HORIZON { (row + 1).to_fp() } else { row.to_fp() };
 
-	pub fn find_wall_intersections(&self, origin_x: i32, origin_y: i32, direction: i32, scene: &Scene) -> Vec<Intersection> {
-		let ray_h = Ray::horizontal(origin_x, origin_y, direction, scene);
-		let ray_v = Ray::vertical(origin_x, origin_y, direction, scene);
+	let ratio = fp::div(fp::sub(wall_height, player_height), fp::sub(consts::PROJECTION_PLANE_HORIZON.to_fp(), row));
 
-		if ray_h.is_undefined() { return ray_v.collect(); }
-		if ray_v.is_undefined() { return ray_h.collect(); }
+	let distance = fp::mul(fp::floor(fp::mul(pp_distance, ratio)), trig::fisheye_correction(column));
 
-		vec![ray_h, ray_v].into_iter().kmerge_by(|a, b| a.dist < b.dist).collect()
+	let x_end = fp::floor(fp::mul(distance, trig::cos(direction)));
+	let y_end = fp::floor(fp::mul(distance, trig::sin(direction)));
+
+	let x_end = fp::add(origin_x, x_end);
+	let y_end = fp::add(origin_y, y_end);
+	
+	let x = fp::floor(fp::div(x_end, consts::FP_TILE_SIZE)).to_i32();
+	let y = fp::floor(fp::div(y_end, consts::FP_TILE_SIZE)).to_i32();
+	
+	let tex_x = x_end.to_i32() & (consts::TILE_SIZE - 1);
+	let tex_y = y_end.to_i32() & (consts::TILE_SIZE - 1);
+
+	match scene.ceiling(x, y) {
+		Tile::Surface(ceiling) => Some(Intersection::new(tex_x, tex_y, distance, ceiling.texture, 0, false)),
+		_ => None,
 	}
 }
-
 
 #[cfg(test)]
 mod test {
@@ -201,7 +267,7 @@ mod test {
 	fn load_scene(fname: &PathBuf) -> Result<Scene, Box<dyn std::error::Error>> {
 		let contents = fs::read_to_string(fname)?;
 		let json: serde_json::Value = serde_json::from_str(contents.as_str())?;
-		let scene = Scene::from_json(&json)?;
+		let scene = Scene::try_from(&json)?;
 		Ok(scene)
 	}
 
@@ -209,20 +275,21 @@ mod test {
 	fn test_facing_directly_right() {
 		let fname = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests").join("resources").join("test-scene-1.json");
 		let scene = load_scene(&fname).expect("Failed to load scene for test");
-		let raycaster = RayCaster::new();
 
-		let intersections = raycaster.find_wall_intersections(128.to_fp(), 128.to_fp(), trig::ANGLE_0, &scene);
+		let intersections = find_wall_intersections(128.to_fp(), 128.to_fp(), trig::ANGLE_0, consts::PROJECTION_PLANE_WIDTH / 2, &scene);
 
 		assert_eq!(1, intersections.len());
+
+		let intersection = intersections[0];
+		assert_eq!(128, intersection.dist.to_i32());
 	}
 
 	#[test]
 	fn test_against_wall() {
 		let fname = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests").join("resources").join("test-scene-1.json");
 		let scene = load_scene(&fname).expect("Failed to load scene for test");
-		let raycaster = RayCaster::new();
 
-		let intersections = raycaster.find_wall_intersections(28.to_fp(), 28.to_fp(), trig::ANGLE_270, &scene);
+		let intersections = find_wall_intersections(28.to_fp(), 28.to_fp(), trig::ANGLE_270, consts::PROJECTION_PLANE_WIDTH / 2, &scene);
 
 		assert_eq!(1, intersections.len());
 
